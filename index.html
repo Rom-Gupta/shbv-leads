@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHBV Lead Manager</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
+<style>
+  :root{
+    --ink:#152524;
+    --ink-soft:#3d504f;
+    --paper:#F7F5F0;
+    --card:#FFFFFF;
+    --line:#E3DECF;
+    --teal:#123B3A;
+    --teal-light:#1E5654;
+    --brass:#A9834A;
+    --brass-light:#C9A66B;
+    --ok:#2F7A4F;
+    --ok-bg:#E6F2EA;
+    --warn:#B4791F;
+    --warn-bg:#FBF0DE;
+    --bad:#B0392E;
+    --bad-bg:#FBEAE7;
+    --info:#2A5C8A;
+    --info-bg:#E9F0F7;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:var(--paper);color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:'Georgia',serif;margin:0 0 4px;color:var(--teal);}
+  .app{max-width:960px;margin:0 auto;padding:16px 16px 80px;}
+  .hidden{display:none !important;}
+
+  /* Login */
+  #loginScreen{max-width:480px;margin:40px auto;padding:0 16px;}
+  .brand{text-align:center;margin-bottom:28px;}
+  .brand .mark{
+    width:56px;height:56px;border-radius:14px;background:var(--teal);
+    color:var(--brass-light);display:flex;align-items:center;justify-content:center;
+    font-family:Georgia,serif;font-size:26px;font-weight:bold;margin:0 auto 12px;
+  }
+  .brand h1{font-size:22px;}
+  .brand p{color:var(--ink-soft);font-size:13px;margin-top:2px;}
+  .login-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:14px;}
+  .login-card h3{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin-bottom:12px;font-family:'Segoe UI',sans-serif;}
+  .role-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .role-btn{
+    border:1px solid var(--line);background:var(--card);border-radius:10px;padding:14px 10px;
+    cursor:pointer;text-align:center;font-size:13.5px;font-weight:600;color:var(--teal);
+    transition:.15s;
+  }
+  .role-btn:hover{border-color:var(--brass);background:#FFFBF2;}
+  .role-btn.selected{background:var(--teal);color:#fff;border-color:var(--teal);}
+  select,input[type=text],input[type=tel],input[type=date],textarea{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+    font-size:14.5px;font-family:inherit;background:#fff;color:var(--ink);margin-bottom:10px;
+  }
+  textarea{resize:vertical;min-height:60px;}
+  label{font-size:12.5px;color:var(--ink-soft);font-weight:600;display:block;margin-bottom:4px;}
+  .btn{
+    display:inline-block;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;
+    cursor:pointer;font-family:inherit;
+  }
+  .btn-primary{background:var(--teal);color:#fff;}
+  .btn-primary:hover{background:var(--teal-light);}
+  .btn-brass{background:var(--brass);color:#fff;}
+  .btn-brass:hover{background:var(--brass-light);}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
+  .btn-ghost:hover{border-color:var(--brass);}
+  .btn-sm{padding:6px 10px;font-size:12.5px;}
+  .btn-full{width:100%;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  /* Header / Nav */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;padding:14px 0 10px;
+    border-bottom:1px solid var(--line);margin-bottom:14px;position:sticky;top:0;background:var(--paper);z-index:5;
+  }
+  .who{font-size:12.5px;color:var(--ink-soft);}
+  .who b{color:var(--teal);}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+  .tab{
+    padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;
+    border:1px solid var(--line);background:#fff;color:var(--ink-soft);position:relative;
+  }
+  .tab.active{background:var(--teal);color:#fff;border-color:var(--teal);}
+  .tab .badge{
+    background:var(--bad);color:#fff;font-size:10.5px;border-radius:10px;padding:1px 6px;margin-left:6px;
+  }
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+  .card-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .lead-name{font-size:16px;font-weight:700;color:var(--teal);}
+  .lead-meta{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .badge{
+    display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;
+    text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;
+  }
+  .badge-pending{background:#EEE9DC;color:#7A6A3F;}
+  .badge-visited{background:var(--info-bg);color:var(--info);}
+  .badge-sale{background:var(--ok-bg);color:var(--ok);}
+  .badge-followup{background:var(--warn-bg);color:var(--warn);}
+  .badge-lost{background:var(--bad-bg);color:var(--bad);}
+  .badge-new{background:var(--bad);color:#fff;}
+
+  .section-title{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--brass);font-weight:700;margin:14px 0 6px;}
+  .empty{color:var(--ink-soft);font-size:13.5px;padding:20px 0;text-align:center;}
+  .log-entry{border-left:2px solid var(--line);padding:6px 0 6px 12px;margin-bottom:6px;font-size:13px;}
+  .log-entry .meta{color:var(--ink-soft);font-size:11.5px;margin-bottom:2px;}
+  .assign-block{background:#FBFAF6;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:8px;}
+  .assign-head{display:flex;justify-content:space-between;align-items:center;}
+  .team-tag{font-size:11px;font-weight:700;color:#fff;padding:2px 8px;border-radius:6px;background:var(--teal);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px;}
+  .row-btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(20,30,29,.55);display:flex;align-items:flex-end;justify-content:center;
+    z-index:50;
+  }
+  @media(min-width:640px){.modal-overlay{align-items:center;}}
+  .modal{
+    background:var(--paper);width:100%;max-width:640px;max-height:88vh;overflow-y:auto;
+    border-radius:16px 16px 0 0;padding:20px;
+  }
+  @media(min-width:640px){.modal{border-radius:16px;}}
+  .modal-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+  .close-x{background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);line-height:1;}
+
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;text-align:center;}
+  .stat .n{font-size:28px;font-weight:700;color:var(--teal);font-family:Georgia,serif;}
+  .stat .l{font-size:11.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;}
+
+  .searchbar{margin-bottom:10px;}
+  .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .filter-row select{width:auto;margin-bottom:0;font-size:13px;padding:7px 10px;}
+  .helper{font-size:12px;color:var(--ink-soft);margin-top:-4px;margin-bottom:10px;}
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--teal);color:#fff;
+    padding:10px 18px;border-radius:20px;font-size:13.5px;z-index:100;box-shadow:0 6px 18px rgba(0,0,0,.2);
+  }
+</style>
+</head>
+<body>
+
+<div id="connectingScreen" style="max-width:420px;margin:120px auto;text-align:center;padding:0 16px;font-family:'Segoe UI',sans-serif;color:var(--ink-soft);">
+  <div class="mark" style="width:56px;height:56px;border-radius:14px;background:#123B3A;color:#C9A66B;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-size:26px;font-weight:bold;margin:0 auto 16px;">SH</div>
+  <div id="connectingMsg">Connecting...</div>
+</div>
+
+<div id="loginScreen" class="hidden">
+  <div class="brand">
+    <div class="mark">SH</div>
+    <h1>Shree Hanumant Bath Villa</h1>
+    <p>Internal Lead &amp; Follow-up Manager</p>
+  </div>
+
+  <div class="login-card">
+    <h3>Who's logging in?</h3>
+    <div class="role-grid" id="roleGrid">
+      <div class="role-btn" data-role="reception">Reception</div>
+      <div class="role-btn" data-role="head">Head</div>
+      <div class="role-btn" data-role="tiles">Sales – Tiles</div>
+      <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
+      <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
+      <div class="role-btn" data-role="windows">Sales – Windows</div>
+    </div>
+  </div>
+
+  <div class="login-card hidden" id="nameCard">
+    <h3 id="nameCardTitle">Your name</h3>
+    <div id="nameCardBody"></div>
+    <div id="nameCardError" style="color:var(--bad);font-size:12.5px;margin-bottom:8px;"></div>
+    <button class="btn btn-primary btn-full" id="enterBtn" style="margin-top:8px;">Enter</button>
+  </div>
+</div>
+
+<div class="app hidden" id="mainApp">
+  <div class="topbar">
+    <div>
+      <div style="font-family:Georgia,serif;font-weight:700;color:var(--teal);font-size:15px;">SHBV Leads</div>
+      <div class="who">Logged in as <b id="whoLabel"></b></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="logoutBtn">Switch user</button>
+  </div>
+
+  <div id="storageBanner" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:12px;font-weight:600;">
+    ⚠ Not connected to storage right now — anything you enter may not be saved. Try reloading the page, and tell your admin if this keeps happening.
+  </div>
+
+  <div class="tabs" id="tabBar"></div>
+  <div id="viewArea"></div>
+</div>
+
+<script>
+/* ---------------- Firebase config ---------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyBowXNjtUY2d4ZfWROhNicRp17n8QIDCOU",
+  authDomain: "shbv-leads.firebaseapp.com",
+  projectId: "shbv-leads",
+  storageBucket: "shbv-leads.firebasestorage.app",
+  messagingSenderId: "1098083784943",
+  appId: "1:1098083784943:web:2ff1da8ec50a2b9bae231a"
+};
+const USE_FIREBASE = typeof firebase !== 'undefined';
+let db = null, auth = null;
+if(USE_FIREBASE){
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  auth = firebase.auth();
+}
+function ensureAuth(){
+  if(!USE_FIREBASE) return Promise.resolve();
+  return new Promise((resolve, reject)=>{
+    auth.onAuthStateChanged(user=>{ if(user) resolve(user); });
+    auth.signInAnonymously().catch(reject);
+  });
+}
+
+/* ---------------- Storage helpers ---------------- */
+async function loadLeads(){
+  try{
+    let raw;
+    if(USE_FIREBASE){
+      const doc = await db.collection('shbv_kv').doc('leads-data').get();
+      raw = doc.exists ? JSON.parse(doc.data().value) : [];
+    } else {
+      const r = await window.storage.get('leads-data', true);
+      raw = r ? JSON.parse(r.value) : [];
+    }
+    return raw.map(normalizeLead);
+  }catch(e){ console.error('load leads failed', e); STORAGE_ERROR = true; return []; }
+}
+async function saveLeads(leads){
+  try{
+    if(USE_FIREBASE){
+      await db.collection('shbv_kv').doc('leads-data').set({value: JSON.stringify(leads), updatedAt:new Date().toISOString()});
+    } else {
+      await window.storage.set('leads-data', JSON.stringify(leads), true);
+    }
+    return true;
+  }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
+}
+function defaultStaff(){
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[],
+    heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
+}
+function normalizeStaffObj(s){
+  if(!s) return defaultStaff();
+  ['reception','tiles','sanitary','kitchen','windows'].forEach(k=>{
+    if(!Array.isArray(s[k])) s[k]=[];
+    s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
+  });
+  if(!Array.isArray(s.heads) || s.heads.length!==3){
+    s.heads = defaultStaff().heads;
+  }
+  return s;
+}
+async function loadStaff(){
+  try{
+    let raw;
+    if(USE_FIREBASE){
+      const doc = await db.collection('shbv_kv').doc('staff-data').get();
+      raw = doc.exists ? JSON.parse(doc.data().value) : null;
+    } else {
+      const r = await window.storage.get('staff-data', true);
+      raw = r ? JSON.parse(r.value) : null;
+    }
+    return normalizeStaffObj(raw);
+  }catch(e){ console.error('load staff failed', e); STORAGE_ERROR = true; return defaultStaff(); }
+}
+async function saveStaff(staff){
+  try{
+    if(USE_FIREBASE){
+      await db.collection('shbv_kv').doc('staff-data').set({value: JSON.stringify(staff), updatedAt:new Date().toISOString()});
+    } else {
+      await window.storage.set('staff-data', JSON.stringify(staff), true);
+    }
+    return true;
+  }catch(e){ console.error('save staff failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
+}
+function subscribeToLiveUpdates(){
+  if(!USE_FIREBASE) return;
+  db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
+    LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
+    if(SESSION) renderApp();
+  });
+  db.collection('shbv_kv').doc('staff-data').onSnapshot(doc=>{
+    STAFF = normalizeStaffObj(doc.exists ? JSON.parse(doc.data().value) : null);
+    if(SESSION) renderApp();
+    else if(pendingRole) renderNameCardBody();
+  });
+}
+// Backfills any fields missing on older saved leads/assignments/logs so future
+// feature additions never break on data saved before that feature existed.
+function normalizeLead(l){
+  if(!l.receptionLog) l.receptionLog = [];
+  if(!l.assignments) l.assignments = [];
+  l.receptionLog.forEach(log=>{
+    if(log.nextFollowUp===undefined) log.nextFollowUp = null;
+  });
+  l.assignments.forEach(a=>{
+    if(!a.log) a.log = [];
+    if(a.acknowledged===undefined) a.acknowledged = true;
+    if(a.product===undefined) a.product = '';
+    if(a.nextFollowUp===undefined) a.nextFollowUp = null;
+    a.log.forEach(log=>{
+      if(log.nextFollowUp===undefined) log.nextFollowUp = null;
+    });
+  });
+  return l;
+}
+
+/* ---------------- State ---------------- */
+let LEADS = [];
+let STAFF = {tiles:[],sanitary:[],kitchen:[],windows:[],reception:[]};
+let SESSION = null; // {role: 'reception'|'head'|'tiles'|..., name: 'X'}
+let STORAGE_ERROR = false; // true if saving/loading data is currently failing
+let ACTIVE_TAB = 'inbox';
+
+const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
+const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
+const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost'};
+
+function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }
+function isDueToday(dateStr){ if(!dateStr) return false; return dateStr <= todayStr(); }
+function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
+}
+
+/* ---------------- Login flow ---------------- */
+const roleGrid = document.getElementById('roleGrid');
+const nameCard = document.getElementById('nameCard');
+let pendingRole = null;
+
+roleGrid.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.role-btn');
+  if(!btn) return;
+  [...roleGrid.children].forEach(c=>c.classList.remove('selected'));
+  btn.classList.add('selected');
+  pendingRole = btn.dataset.role;
+  nameCard.classList.remove('hidden');
+  document.getElementById('nameCardError').textContent = '';
+  renderNameCardBody();
+});
+
+function renderNameCardBody(){
+  const body = document.getElementById('nameCardBody');
+  if(pendingRole==='head'){
+    document.getElementById('nameCardTitle').textContent = 'Head login';
+    body.innerHTML = `
+      <label>Select head</label>
+      <select id="headSelect">${STAFF.heads.map(h=>`<option value="${esc(h.name)}">${esc(h.name)}</option>`).join('')}</select>
+      <div id="headPassArea"></div>
+    `;
+    document.getElementById('headSelect').addEventListener('change', renderHeadPassArea);
+    renderHeadPassArea();
+  } else {
+    document.getElementById('nameCardTitle').textContent =
+      pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
+    const list = STAFF[pendingRole]||[];
+    if(!list.length){
+      body.innerHTML = STORAGE_ERROR
+        ? `<div class="helper" style="margin-top:0;color:var(--bad);">Could not connect to the data store, so no logins could be loaded. Try reloading the page — if it keeps happening, tell your admin.</div>`
+        : `<div class="helper" style="margin-top:0;">No login has been created for this team yet. Ask a Head to add you under "Manage Logins".</div>`;
+      return;
+    }
+    body.innerHTML = `
+      <label>Your name</label>
+      <select id="staffSelect">
+        <option value="">— select your name —</option>
+        ${list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
+      </select>
+      <div id="staffAuthArea"></div>
+    `;
+    document.getElementById('staffSelect').addEventListener('change', renderStaffAuthArea);
+    renderStaffAuthArea();
+  }
+}
+
+function renderHeadPassArea(){
+  const name = document.getElementById('headSelect').value;
+  const head = STAFF.heads.find(h=>h.name===name);
+  const area = document.getElementById('headPassArea');
+  if(!head.pass){
+    area.innerHTML = `
+      <label>Set your password (first login)</label>
+      <input type="password" id="headNewPass" placeholder="Choose a password (min 4 characters)">
+      <input type="password" id="headNewPass2" placeholder="Confirm password">
+    `;
+  } else {
+    area.innerHTML = `
+      <label>Password</label>
+      <input type="password" id="headPass" placeholder="Enter password">
+    `;
+  }
+}
+
+function renderStaffAuthArea(){
+  const sel = document.getElementById('staffSelect').value;
+  const area = document.getElementById('staffAuthArea');
+  if(sel){
+    area.innerHTML = `
+      <label>Password</label>
+      <input type="password" id="staffPass" placeholder="Enter password">
+    `;
+  } else {
+    area.innerHTML = '';
+  }
+}
+
+function loginAs(role, name){
+  SESSION = {role, name};
+  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : 'myleads');
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.remove('hidden');
+  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':TEAM_LABELS[role]+' Sales');
+  document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
+  renderApp();
+}
+
+document.getElementById('enterBtn').addEventListener('click', async ()=>{
+  if(!pendingRole) return;
+  const errArea = document.getElementById('nameCardError');
+  errArea.textContent = '';
+
+  if(pendingRole==='head'){
+    const name = document.getElementById('headSelect').value;
+    const head = STAFF.heads.find(h=>h.name===name);
+    if(!head.pass){
+      const p1 = document.getElementById('headNewPass').value;
+      const p2 = document.getElementById('headNewPass2').value;
+      if(!p1 || p1.length<4){ errArea.textContent='Password must be at least 4 characters.'; return; }
+      if(p1!==p2){ errArea.textContent='Passwords do not match.'; return; }
+      head.pass = p1;
+      await saveStaff(STAFF);
+      loginAs('head', name);
+    } else {
+      const p = document.getElementById('headPass').value;
+      if(p!==head.pass){ errArea.textContent='Incorrect password.'; return; }
+      loginAs('head', name);
+    }
+    return;
+  }
+
+  const staffSelectEl = document.getElementById('staffSelect');
+  if(!staffSelectEl){ errArea.textContent='No login exists yet — ask a Head to create one for you.'; return; }
+  const sel = staffSelectEl.value;
+  if(!sel){ errArea.textContent='Select your name first.'; return; }
+  const person = STAFF[pendingRole].find(s=>s.name===sel);
+  const p = document.getElementById('staffPass').value;
+  if(p!==person.pass){ errArea.textContent='Incorrect password.'; return; }
+  loginAs(pendingRole, sel);
+});
+
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  SESSION = null;
+  document.getElementById('mainApp').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  [...roleGrid.children].forEach(c=>c.classList.remove('selected'));
+  nameCard.classList.add('hidden');
+  pendingRole = null;
+});
+
+/* ---------------- Derived helpers ---------------- */
+function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }
+
+function myAssignments(lead){
+  if(!lead.assignments) return [];
+  return lead.assignments.filter(a=>a.team===SESSION.role && a.salesperson===SESSION.name);
+}
+
+function newAssignmentsCountForMe(){
+  let n=0;
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && !a.acknowledged) n++;
+  }));
+  return n;
+}
+function dueTodayCountForMe(){
+  let n=0;
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status==='followup' && isDueToday(a.nextFollowUp)) n++;
+  }));
+  return n;
+}
+function receptionUnassignedLeads(){
+  return LEADS.filter(l=>!leadHasAssignments(l));
+}
+function receptionDueTodayCount(){
+  return receptionUnassignedLeads().filter(l=>{
+    if(l.receptionLog && l.receptionLog.length){
+      const last = l.receptionLog[l.receptionLog.length-1];
+      return last.status==='followup' && isDueToday(last.nextFollowUp);
+    }
+    return true; // never contacted yet — always "due"
+  }).length;
+}
+
+/* ---------------- Tabs ---------------- */
+function tabsFor(role){
+  if(role==='reception') return [
+    {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
+    {id:'add', label:'+ New Lead'},
+    {id:'all', label:'All Leads'},
+  ];
+  if(role==='head') return [
+    {id:'overview', label:'Overview'},
+    {id:'reports', label:'Daily Reports'},
+    {id:'weekly', label:'Weekly Report'},
+    {id:'monthly', label:'Monthly Report'},
+    {id:'all', label:'All Leads'},
+    {id:'logins', label:'Manage Logins'},
+  ];
+  return [
+    {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe()},
+    {id:'due', label:'Due Today', badge:()=>dueTodayCountForMe()},
+    {id:'add', label:'+ New Lead'},
+    {id:'allmine', label:'All My Leads'},
+  ];
+}
+
+function renderTabs(){
+  const bar = document.getElementById('tabBar');
+  const tabs = tabsFor(SESSION.role);
+  bar.innerHTML = tabs.map(t=>{
+    const b = t.badge ? t.badge() : 0;
+    return `<div class="tab ${ACTIVE_TAB===t.id?'active':''}" data-tab="${t.id}">${t.label}${b>0?`<span class="badge">${b}</span>`:''}</div>`;
+  }).join('');
+  [...bar.children].forEach(c=>c.addEventListener('click', ()=>{ ACTIVE_TAB=c.dataset.tab; renderApp(); }));
+}
+
+/* ---------------- Main render dispatch ---------------- */
+async function renderApp(){
+  const banner = document.getElementById('storageBanner');
+  if(banner) banner.classList.toggle('hidden', !STORAGE_ERROR);
+  renderTabs();
+  const area = document.getElementById('viewArea');
+  if(SESSION.role==='reception'){
+    if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox();
+    else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
+    else area.innerHTML = viewAllLeads(true);
+  } else if(SESSION.role==='head'){
+    if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
+    else if(ACTIVE_TAB==='reports') area.innerHTML = viewReports();
+    else if(ACTIVE_TAB==='weekly') area.innerHTML = viewWeeklyReport();
+    else if(ACTIVE_TAB==='monthly') area.innerHTML = viewMonthlyReport();
+    else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
+    else area.innerHTML = viewAllLeads(true);
+  } else {
+    if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
+    else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');
+    else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
+    else area.innerHTML = viewAllMyLeads();
+  }
+  bindDynamicHandlers();
+}
+
+/* ---------------- Reception: Inbox (unassigned leads) ---------------- */
+function viewReceptionInbox(){
+  const list = receptionUnassignedLeads();
+  if(!list.length) return `<div class="empty">No unassigned leads right now. New leads you add will appear here until referred to a sales team.</div>`;
+  // sort: due/never-contacted first
+  const sorted = [...list].sort((a,b)=>{
+    const da = a.receptionLog?.length ? a.receptionLog[a.receptionLog.length-1].nextFollowUp||'' : '0000';
+    const db = b.receptionLog?.length ? b.receptionLog[b.receptionLog.length-1].nextFollowUp||'' : '0000';
+    return (da||'0000') < (db||'0000') ? -1 : 1;
+  });
+  return sorted.map(l=>leadCardReception(l)).join('');
+}
+
+function leadCardReception(l){
+  const last = l.receptionLog && l.receptionLog.length ? l.receptionLog[l.receptionLog.length-1] : null;
+  let statusBadge = `<span class="badge badge-pending">New</span>`;
+  if(last){
+    if(last.status==='followup') statusBadge = isDueToday(last.nextFollowUp)
+      ? `<span class="badge badge-followup">Follow-up due</span>`
+      : `<span class="badge badge-followup">Follow-up ${fmtDate(last.nextFollowUp)}</span>`;
+    else if(last.status==='lost') statusBadge = `<span class="badge badge-lost">Loose Lead</span>`;
+  }
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(l.name)}</div>
+        <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
+      </div>
+      ${statusBadge}
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}" data-mode="view">View / Follow-up</button>
+      <button class="btn btn-brass btn-sm" data-open-lead="${l.id}" data-mode="refer">Refer to Sales Team</button>
+    </div>
+  </div>`;
+}
+
+/* ---------------- Reception: Add lead ---------------- */
+function viewAddLead(){
+  return `
+  <div class="card">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">New lead</h3>
+    <label>Customer name</label>
+    <input type="text" id="newLeadName" placeholder="Full name">
+    <label>Phone number</label>
+    <input type="tel" id="newLeadPhone" placeholder="10-digit number">
+    <label>Address</label>
+    <input type="text" id="newLeadAddress" placeholder="Address (optional)">
+    <label>Lead source</label>
+    <select id="newLeadSource">
+      ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary btn-full" id="saveNewLeadBtn">Save Lead</button>
+  </div>`;
+}
+
+/* ---------------- Sales: My Leads / Due Today ---------------- */
+function viewMyLeads(mode){
+  let assigns = [];
+  LEADS.forEach(l=>{
+    (l.assignments||[]).forEach(a=>{
+      if(a.team===SESSION.role && a.salesperson===SESSION.name){
+        if(mode==='due'){
+          if(a.status==='followup' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
+        } else {
+          if(a.status!=='sale' && a.status!=='lost') assigns.push({lead:l, a});
+        }
+      }
+    });
+  });
+  if(!assigns.length) return `<div class="empty">${mode==='due' ? 'No follow-ups due today.' : 'No active leads referred to you right now.'}</div>`;
+  assigns.sort((x,y)=> (x.a.acknowledged===y.a.acknowledged) ? 0 : (x.a.acknowledged?1:-1));
+  return assigns.map(({lead,a})=>leadCardSales(lead,a)).join('');
+}
+
+function viewAllMyLeads(){
+  let assigns = [];
+  LEADS.forEach(l=>{
+    (l.assignments||[]).forEach(a=>{
+      if(a.team===SESSION.role && a.salesperson===SESSION.name) assigns.push({lead:l, a});
+    });
+  });
+  const total = assigns.length;
+  const sold = assigns.filter(x=>x.a.status==='sale').length;
+  const lost = assigns.filter(x=>x.a.status==='lost').length;
+  const inProgress = assigns.filter(x=>['pending','visited','followup'].includes(x.a.status)).length;
+  let html = `
+  <div class="stat-grid">
+    <div class="stat"><div class="n">${total}</div><div class="l">Total Leads</div></div>
+    <div class="stat"><div class="n">${sold}</div><div class="l">Sale Done</div></div>
+    <div class="stat"><div class="n">${inProgress}</div><div class="l">In Progress</div></div>
+    <div class="stat"><div class="n">${lost}</div><div class="l">Lost</div></div>
+  </div>`;
+  if(!assigns.length) return html + `<div class="empty">No leads have ever been referred to you.</div>`;
+  assigns.sort((x,y)=> y.a.assignedAt.localeCompare(x.a.assignedAt));
+  html += assigns.map(({lead,a})=>leadCardSales(lead,a)).join('');
+  return html;
+}
+
+function leadCardSales(lead, a){
+  const badgeClass = 'badge-'+a.status;
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
+        <div class="lead-meta">${esc(lead.phone)} · ${esc(lead.address||'—')}</div>
+        <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
+      </div>
+      <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
+    </div>
+    ${a.nextFollowUp && a.status==='followup' ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b></div>`:''}
+    <div class="row-btns">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
+      <button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>
+    </div>
+  </div>`;
+}
+
+/* ---------------- Head: Overview ---------------- */
+function viewHeadOverview(){
+  const total = LEADS.length;
+  const today = LEADS.filter(l=>l.createdAt.slice(0,10)===todayStr()).length;
+  const soldCount = LEADS.filter(l=>(l.assignments||[]).some(a=>a.status==='sale')).length;
+  const lostCount = LEADS.filter(l=>{
+    const noAssign = !leadHasAssignments(l);
+    if(noAssign){
+      const last = l.receptionLog?.length ? l.receptionLog[l.receptionLog.length-1] : null;
+      return last && last.status==='lost';
+    }
+    return l.assignments.length>0 && l.assignments.every(a=>a.status==='lost');
+  }).length;
+  const dueAcrossAll = LEADS.reduce((n,l)=>{
+    let c=0;
+    (l.assignments||[]).forEach(a=>{ if(a.status==='followup' && isDueToday(a.nextFollowUp)) c++; });
+    if(!leadHasAssignments(l)){
+      const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
+      if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
+    }
+    return n+c;
+  },0);
+  return `
+  <div class="stat-grid">
+    <div class="stat"><div class="n">${total}</div><div class="l">Total Leads</div></div>
+    <div class="stat"><div class="n">${today}</div><div class="l">Added Today</div></div>
+    <div class="stat"><div class="n">${soldCount}</div><div class="l">Sales Done</div></div>
+    <div class="stat"><div class="n">${dueAcrossAll}</div><div class="l">Follow-ups Due</div></div>
+  </div>
+  <div class="section-title">Needs attention today</div>
+  ${dueAcrossAll===0 ? `<div class="empty">Nothing overdue right now.</div>` : ''}
+  ${LEADS.filter(l=>{
+      let due=false;
+      (l.assignments||[]).forEach(a=>{ if(a.status==='followup' && isDueToday(a.nextFollowUp)) due=true; });
+      if(!leadHasAssignments(l)){
+        const last=l.receptionLog?.length?l.receptionLog[l.receptionLog.length-1]:null;
+        if(!last || (last.status==='followup'&&isDueToday(last.nextFollowUp))) due=true;
+      }
+      return due;
+    }).map(l=>leadCardHead(l)).join('')}
+  `;
+}
+
+/* ---------------- Head: Manage Logins ---------------- */
+function viewManageLogins(){
+  const depts = ['reception','tiles','sanitary','kitchen','windows'];
+  return `
+  <div class="card">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
+    <label>Department</label>
+    <select id="newLoginDept">
+      <option value="reception">Reception</option>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">Sales – ${v}</option>`).join('')}
+    </select>
+    <label>Name</label>
+    <input type="text" id="newLoginName" placeholder="Full name">
+    <label>Password</label>
+    <input type="password" id="newLoginPass" placeholder="Set a password for them (min 4 characters)">
+    <button class="btn btn-primary btn-full" id="createLoginBtn">Create Login</button>
+  </div>
+  ${depts.map(dept=>`
+    <div class="section-title" style="margin-top:16px;">${dept==='reception'?'Reception':'Sales – '+TEAM_LABELS[dept]}</div>
+    ${STAFF[dept].length ? STAFF[dept].map(p=>`
+      <div class="card" style="padding:10px 14px;">
+        <div class="card-row">
+          <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+          <div class="row-btns" style="margin-top:0;">
+            <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="${dept}" data-name="${esc(p.name)}">Reset Password</button>
+            <button class="btn btn-ghost btn-sm removeLoginBtn" data-dept="${dept}" data-name="${esc(p.name)}">Remove</button>
+          </div>
+        </div>
+      </div>
+    `).join('') : `<div class="empty" style="padding:8px 0;">No logins yet.</div>`}
+  `).join('')}
+
+  <div class="section-title" style="margin-top:24px;color:var(--bad);">Danger Zone</div>
+  <div class="card" style="border-color:var(--bad);">
+    <div class="lead-meta" style="margin-bottom:10px;">Permanently deletes every lead, every follow-up, and every staff login (Head accounts keep their names but passwords are cleared too). This cannot be undone.</div>
+    <button class="btn btn-sm" style="background:var(--bad);color:#fff;" id="resetAllDataBtn">Reset All Data</button>
+  </div>
+  `;
+}
+
+function bindManageLoginsHandlers(){
+  const createBtn = document.getElementById('createLoginBtn');
+  if(createBtn){
+    createBtn.addEventListener('click', async ()=>{
+      const dept = document.getElementById('newLoginDept').value;
+      const name = document.getElementById('newLoginName').value.trim();
+      const pass = document.getElementById('newLoginPass').value;
+      if(!name){ toast('Enter a name'); return; }
+      if(!pass || pass.length<4){ toast('Password must be at least 4 characters'); return; }
+      if(!STAFF[dept]) STAFF[dept]=[];
+      if(STAFF[dept].some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists in this department'); return; }
+      STAFF[dept].push({name, pass});
+      await saveStaff(STAFF);
+      toast(`Login created for ${name}`);
+      renderApp();
+    });
+  }
+  document.querySelectorAll('.resetPassBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const dept = btn.dataset.dept, name = btn.dataset.name;
+      const person = STAFF[dept].find(p=>p.name===name);
+      person.pass = '';
+      await saveStaff(STAFF);
+      toast(`Password reset for ${name} — they'll set a new one at next login.`);
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.removeLoginBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const dept = btn.dataset.dept, name = btn.dataset.name;
+      if(!confirm(`Remove login for ${name}? A Head will need to recreate it if needed.`)) return;
+      STAFF[dept] = STAFF[dept].filter(p=>p.name!==name);
+      await saveStaff(STAFF);
+      toast(`Removed ${name}`);
+      renderApp();
+    });
+  });
+  const resetAllBtn = document.getElementById('resetAllDataBtn');
+  if(resetAllBtn) resetAllBtn.addEventListener('click', factoryReset);
+}
+
+async function factoryReset(){
+  if(!confirm('This will permanently delete every lead, follow-up, and staff login. Continue?')) return;
+  if(!confirm('Are you absolutely sure? This cannot be undone.')) return;
+  LEADS = [];
+  STAFF = defaultStaff();
+  await saveLeads(LEADS);
+  await saveStaff(STAFF);
+  toast('All data cleared. Logging out...');
+  setTimeout(()=>{ document.getElementById('logoutBtn').click(); }, 800);
+}
+
+/* ---------------- Head: Weekly Report ---------------- */
+function defaultWeekRange(){
+  const end = new Date();
+  const start = new Date(); start.setDate(start.getDate()-6);
+  return {start: start.toISOString().slice(0,10), end: end.toISOString().slice(0,10)};
+}
+let WEEK_RANGE = null;
+function getWeekRange(){ if(!WEEK_RANGE) WEEK_RANGE = defaultWeekRange(); return WEEK_RANGE; }
+
+function inRange(iso, start, end){ const d = iso.slice(0,10); return d>=start && d<=end; }
+
+function computeWeeklyStats(start, end){
+  const byTeam = {};
+  Object.keys(TEAM_LABELS).forEach(k=> byTeam[k] = {referred:0,visited:0,sale:0,followup:0,lost:0});
+  const bySales = {};
+  LEADS.forEach(l=>{
+    (l.assignments||[]).forEach(a=>{
+      const key = a.team+'|'+a.salesperson;
+      if(!bySales[key]) bySales[key] = {team:a.team, name:a.salesperson, referred:0, followupCalls:[], sale:0, lost:0};
+      if(inRange(a.assignedAt, start, end)){
+        byTeam[a.team].referred++;
+        bySales[key].referred++;
+      }
+      (a.log||[]).forEach(log=>{
+        if(!inRange(log.timestamp, start, end)) return;
+        if(log.status==='visited') byTeam[a.team].visited++;
+        if(log.status==='sale'){ byTeam[a.team].sale++; bySales[key].sale++; }
+        if(log.status==='lost'){ byTeam[a.team].lost++; bySales[key].lost++; }
+        if(log.status==='followup'){
+          byTeam[a.team].followup++;
+          bySales[key].followupCalls.push({leadName:l.name, remarks:log.remarks, date:log.timestamp, nextFollowUp:log.nextFollowUp});
+        }
+      });
+    });
+  });
+  return {byTeam, bySales};
+}
+
+function weeklyReportToCSV(range, stats){
+  let lines = [];
+  lines.push([`Weekly Report ${range.start} to ${range.end}`]);
+  lines.push([]);
+  lines.push(['Team','Referred','Visited','Sold','Follow-ups','Lost']);
+  Object.entries(TEAM_LABELS).forEach(([k,v])=>{
+    const s = stats.byTeam[k];
+    lines.push([v, s.referred, s.visited, s.sale, s.followup, s.lost]);
+  });
+  lines.push([]);
+  lines.push(['Salesperson','Team','Total Follow-ups','Sold','Loose','Client','Call Remarks','Call Date']);
+  Object.values(stats.bySales).forEach(s=>{
+    if(s.followupCalls.length===0){
+      lines.push([s.name, TEAM_LABELS[s.team], 0, s.sale, s.lost, '', '', '']);
+    } else {
+      s.followupCalls.forEach((c,i)=>{
+        lines.push([i===0?s.name:'', i===0?TEAM_LABELS[s.team]:'', i===0?s.followupCalls.length:'', i===0?s.sale:'', i===0?s.lost:'', c.leadName, c.remarks, fmtDateTime(c.date)]);
+      });
+    }
+  });
+  return lines.map(r=>r.map(c=>`"${(c===undefined?'':c).toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+}
+function downloadWeeklyCSV(){
+  const range = getWeekRange();
+  const stats = computeWeeklyStats(range.start, range.end);
+  const csv = weeklyReportToCSV(range, stats);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`shbv-weekly-report-${range.start}_to_${range.end}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function viewWeeklyReport(){
+  const range = getWeekRange();
+  const stats = computeWeeklyStats(range.start, range.end);
+  let html = `
+  <div class="card">
+    <div class="grid2">
+      <div><label>From</label><input type="date" id="weekStartInput" value="${range.start}"></div>
+      <div><label>To</label><input type="date" id="weekEndInput" value="${range.end}"></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="exportWeeklyCsvBtn">⬇ Export This Report (CSV)</button>
+  </div>
+  <div class="section-title">By Team / Department</div>
+  <div class="card">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="text-align:left;color:var(--ink-soft);font-size:11.5px;text-transform:uppercase;">
+        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
+      </tr>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>{
+        const s = stats.byTeam[k];
+        return `<tr style="border-top:1px solid var(--line);">
+          <td style="padding:6px 6px 6px 0;font-weight:600;">${v}</td>
+          <td>${s.referred}</td><td>${s.visited}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
+        </tr>`;
+      }).join('')}
+    </table>
+  </div>
+  <div class="section-title" style="margin-top:18px;">By Salesperson</div>
+  `;
+  const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+  if(!salesEntries.length){
+    html += `<div class="empty">No sales activity in this range.</div>`;
+  } else {
+    salesEntries.forEach(s=>{
+      html += `
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(s.name)}</div>
+            <div class="lead-meta">${TEAM_LABELS[s.team]} team</div>
+          </div>
+          <div style="text-align:right;font-size:12.5px;">
+            <div><b>${s.followupCalls.length}</b> follow-ups</div>
+            <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
+            <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
+          </div>
+        </div>
+        ${s.followupCalls.length ? `
+          <div class="section-title" style="margin:10px 0 4px;">Follow-up calls this period</div>
+          ${s.followupCalls.slice().reverse().map(c=>`
+            <div class="log-entry">
+              <div class="meta">${esc(c.leadName)} · ${fmtDateTime(c.date)}</div>
+              ${esc(c.remarks)} ${c.nextFollowUp?`<div class="meta">Next call: ${fmtDate(c.nextFollowUp)}</div>`:''}
+            </div>`).join('')}
+        ` : ''}
+      </div>`;
+    });
+  }
+  html += rangeLeadsFilterPanel('wk', range);
+  return html;
+}
+
+/* ---------------- Head: Monthly Report ---------------- */
+function defaultMonthRange(){
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  return {start: start.toISOString().slice(0,10), end: now.toISOString().slice(0,10)};
+}
+let MONTH_RANGE = null;
+function getMonthRange(){ if(!MONTH_RANGE) MONTH_RANGE = defaultMonthRange(); return MONTH_RANGE; }
+
+function downloadMonthlyCSV(){
+  const range = getMonthRange();
+  const stats = computeWeeklyStats(range.start, range.end);
+  const csv = weeklyReportToCSV(range, stats);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`shbv-monthly-report-${range.start}_to_${range.end}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function viewMonthlyReport(){
+  const range = getMonthRange();
+  const stats = computeWeeklyStats(range.start, range.end);
+  let html = `
+  <div class="card">
+    <div class="grid2">
+      <div><label>From</label><input type="date" id="monthStartInput" value="${range.start}"></div>
+      <div><label>To</label><input type="date" id="monthEndInput" value="${range.end}"></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="exportMonthlyCsvBtn">⬇ Export This Report (CSV)</button>
+  </div>
+  <div class="section-title">By Team / Department</div>
+  <div class="card">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="text-align:left;color:var(--ink-soft);font-size:11.5px;text-transform:uppercase;">
+        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
+      </tr>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>{
+        const s = stats.byTeam[k];
+        return `<tr style="border-top:1px solid var(--line);">
+          <td style="padding:6px 6px 6px 0;font-weight:600;">${v}</td>
+          <td>${s.referred}</td><td>${s.visited}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
+        </tr>`;
+      }).join('')}
+    </table>
+  </div>
+  <div class="section-title" style="margin-top:18px;">By Salesperson</div>
+  `;
+  const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+  if(!salesEntries.length){
+    html += `<div class="empty">No sales activity in this range.</div>`;
+  } else {
+    salesEntries.forEach(s=>{
+      html += `
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(s.name)}</div>
+            <div class="lead-meta">${TEAM_LABELS[s.team]} team</div>
+          </div>
+          <div style="text-align:right;font-size:12.5px;">
+            <div><b>${s.followupCalls.length}</b> follow-ups</div>
+            <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
+            <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
+          </div>
+        </div>
+        ${s.followupCalls.length ? `
+          <div class="section-title" style="margin:10px 0 4px;">Follow-up calls this period</div>
+          ${s.followupCalls.slice().reverse().map(c=>`
+            <div class="log-entry">
+              <div class="meta">${esc(c.leadName)} · ${fmtDateTime(c.date)}</div>
+              ${esc(c.remarks)} ${c.nextFollowUp?`<div class="meta">Next call: ${fmtDate(c.nextFollowUp)}</div>`:''}
+            </div>`).join('')}
+        ` : ''}
+      </div>`;
+    });
+  }
+  html += rangeLeadsFilterPanel('mo', range);
+  return html;
+}
+
+/* ---------------- Head: All Leads list + search/filter ---------------- */
+function allSalespeopleList(){
+  const out = [];
+  ['tiles','sanitary','kitchen','windows'].forEach(dept=>{
+    (STAFF[dept]||[]).forEach(p=> out.push({team:dept, name:p.name}));
+  });
+  return out.sort((a,b)=> a.name.localeCompare(b.name));
+}
+function viewAllLeads(){
+  const salespeople = allSalespeopleList();
+  return `
+  <div class="searchbar"><input type="text" id="searchBox" placeholder="Search by name or phone..."></div>
+  <div class="filter-row">
+    <select id="filterTeam">
+      <option value="">All teams</option>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <select id="filterStatus">
+      <option value="">All statuses</option>
+      ${Object.entries(STATUS_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <select id="filterSales">
+      <option value="">All salesmen</option>
+      ${salespeople.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('')}
+    </select>
+  </div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','')}</div>
+  `;
+}
+function filterLeadsList(baseList, search, team, status, salesperson){
+  let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+  if(search){
+    const s = search.toLowerCase();
+    list = list.filter(l=> l.name.toLowerCase().includes(s) || (l.phone||'').includes(s));
+  }
+  if(team){
+    list = list.filter(l=> (l.assignments||[]).some(a=>a.team===team));
+  }
+  if(status){
+    list = list.filter(l=> (l.assignments||[]).some(a=>a.status===status) ||
+      (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===status));
+  }
+  if(salesperson){
+    list = list.filter(l=> (l.assignments||[]).some(a=>a.salesperson===salesperson));
+  }
+  if(!list.length) return `<div class="empty">No matching leads.</div>`;
+  return list.map(l=>leadCardHead(l)).join('');
+}
+function renderAllLeadsResults(search, team, status, salesperson){
+  return filterLeadsList(LEADS, search, team, status, salesperson);
+}
+// Leads with any activity (created, referred, or logged) within a date range — used by
+// the Weekly/Monthly report "All Leads In This Period" sections.
+function leadsActiveInRange(start, end){
+  return LEADS.filter(l=>{
+    if(inRange(l.createdAt, start, end)) return true;
+    if((l.receptionLog||[]).some(log=>inRange(log.timestamp, start, end))) return true;
+    return (l.assignments||[]).some(a=>
+      inRange(a.assignedAt, start, end) || (a.log||[]).some(log=>inRange(log.timestamp, start, end))
+    );
+  });
+}
+function rangeLeadsFilterPanel(prefix, range){
+  const salespeople = allSalespeopleList();
+  return `
+  <div class="section-title" style="margin-top:24px;">All Leads In This Period</div>
+  <div class="searchbar"><input type="text" id="${prefix}SearchBox" placeholder="Search by name or phone..."></div>
+  <div class="filter-row">
+    <select id="${prefix}FilterTeam">
+      <option value="">All teams</option>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <select id="${prefix}FilterStatus">
+      <option value="">All statuses</option>
+      ${Object.entries(STATUS_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <select id="${prefix}FilterSales">
+      <option value="">All salesmen</option>
+      ${salespeople.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('')}
+    </select>
+  </div>
+  <div id="${prefix}AllLeadsResults">${filterLeadsList(leadsActiveInRange(range.start, range.end), '', '', '', '')}</div>
+  `;
+}
+function bindRangeLeadsFilters(prefix, range){
+  const search = document.getElementById(prefix+'SearchBox');
+  const team = document.getElementById(prefix+'FilterTeam');
+  const status = document.getElementById(prefix+'FilterStatus');
+  const sales = document.getElementById(prefix+'FilterSales');
+  if(!search && !team && !status && !sales) return;
+  function refresh(){
+    document.getElementById(prefix+'AllLeadsResults').innerHTML =
+      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'');
+    document.querySelectorAll('[data-open-lead]').forEach(el=>{
+      el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+    });
+  }
+  if(search) search.addEventListener('input', refresh);
+  if(team) team.addEventListener('change', refresh);
+  if(status) status.addEventListener('change', refresh);
+  if(sales) sales.addEventListener('change', refresh);
+}
+
+function leadCardHead(l){
+  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join(' ');
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(l.name)}</div>
+        <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
+      </div>
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full History</button>
+    </div>
+  </div>`;
+}
+
+/* ---------------- Head: Daily reports ---------------- */
+function leadsToCSV(){
+  const rows = [['Lead Name','Phone','Address','Source','Added On','Added By','Team','Salesperson','Status','Product','Last Remark','Next Follow-up']];
+  LEADS.forEach(l=>{
+    if(!l.assignments || !l.assignments.length){
+      rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'','—','—','Not yet referred','','','']);
+    } else {
+      l.assignments.forEach(a=>{
+        const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
+        rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,STATUS_LABELS[a.status],a.product||'',lastLog?lastLog.remarks:'',a.nextFollowUp||'']);
+      });
+    }
+  });
+  return rows.map(r=>r.map(c=>`"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+}
+function downloadCSV(){
+  const csv = leadsToCSV();
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`shbv-leads-${todayStr()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function leadCurrentlyNeedsFollowup(l){
+  if(!leadHasAssignments(l)){
+    if(!l.receptionLog || !l.receptionLog.length) return true; // never contacted yet
+    const last = l.receptionLog[l.receptionLog.length-1];
+    return last.status !== 'followup' && last.status !== 'lost';
+  }
+  return l.assignments.some(a=> a.status!=='sale' && a.status!=='lost' && a.status!=='followup');
+}
+
+function groupTodayActivityByLead(){
+  const today = todayStr();
+  const map = new Map();
+  function push(l, entry){
+    if(!map.has(l.id)) map.set(l.id, {lead:l, entries:[]});
+    map.get(l.id).entries.push(entry);
+  }
+  LEADS.forEach(l=>{
+    (l.receptionLog||[]).forEach(log=>{
+      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
+    });
+    (l.assignments||[]).forEach(a=>{
+      (a.log||[]).forEach(log=>{
+        if(log.timestamp.slice(0,10)===today) push(l, {team:TEAM_LABELS[a.team], author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
+      });
+    });
+    if(l.createdAt.slice(0,10)===today && l.source==='Walk-in'){
+      push(l, {team:'Reception (Walk-in)', author:'—', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
+    }
+  });
+  const groups = [...map.values()];
+  groups.forEach(g=> g.entries.sort((a,b)=>b.time.localeCompare(a.time)));
+  groups.sort((x,y)=> y.entries[0].time.localeCompare(x.entries[0].time));
+  return groups;
+}
+
+function viewReports(){
+  const today = todayStr();
+  const groups = groupTodayActivityByLead();
+
+  const visitGroups = groups
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>['visited','sale','new visit'].includes(e.status))}))
+    .filter(g=>g.entries.length);
+
+  const followupGroups = groups
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup')}))
+    .filter(g=>g.entries.length);
+
+  const needsFollowup = LEADS.filter(leadCurrentlyNeedsFollowup).sort((a,b)=>a.name.localeCompare(b.name));
+
+  return `
+  <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
+  <div class="section-title">Today's Visits (${fmtDate(today)})</div>
+  ${visitGroups.length===0 ? `<div class="empty">No visits logged yet today.</div>` :
+    visitGroups.map(g=>`
+      <div class="card">
+        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
+        ${g.entries.map(e=>`
+          <div class="log-entry">
+            <div class="meta">${e.team} · ${fmtDateTime(e.time)}</div>
+            <span class="badge badge-${e.status==='sale'?'sale':'visited'}">${e.status==='sale'?'Sale Done':(e.status==='new visit'?'Walk-in':'Visited')}</span>
+          </div>`).join('')}
+      </div>`).join('')}
+
+  <div class="section-title" style="margin-top:20px;">Follow-ups Scheduled Today</div>
+  ${followupGroups.length===0 ? `<div class="empty">No follow-up calls were scheduled today.</div>` :
+    followupGroups.map(g=>`
+      <div class="card">
+        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
+        ${g.entries.map(e=>`
+          <div class="log-entry">
+            <div class="meta">${e.team} · by ${esc(e.author)} · ${fmtDateTime(e.time)}</div>
+            ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
+          </div>`).join('')}
+      </div>`).join('')}
+
+  <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
+  ${needsFollowup.length===0 ? `<div class="empty">Everyone active has a follow-up plan in place.</div>` :
+    needsFollowup.map(l=>`
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(l.name)}</div>
+            <div class="lead-meta">${esc(l.phone)} · ${esc(l.source)}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              ${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('') || '<span class="lead-meta">Not yet referred to sales</span>'}
+            </div>
+          </div>
+        </div>
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View</button>
+        </div>
+      </div>`).join('')}
+  `;
+}
+
+/* ---------------- Lead Detail Modal ---------------- */
+function openLeadModal(leadId, focusAssignId, mode, focusSection){
+  const lead = LEADS.find(l=>l.id===leadId);
+  if(!lead) return;
+  const overlay = document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.id='modalOverlay';
+  overlay.innerHTML = `<div class="modal" id="modalBox">${renderLeadDetail(lead, focusAssignId, mode)}</div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target.id==='modalOverlay') closeModal(); });
+  bindModalHandlers(lead);
+  if(focusSection && focusAssignId){
+    setTimeout(()=>{
+      const el = document.getElementById(`${focusSection}Section-${focusAssignId}`);
+      if(el){
+        el.scrollIntoView({behavior:'smooth', block:'start'});
+        el.style.outline = '2px solid var(--brass)';
+        el.style.borderRadius = '10px';
+      }
+    }, 0);
+  }
+}
+function closeModal(){ const o=document.getElementById('modalOverlay'); if(o) o.remove(); }
+
+function renderLeadDetail(lead, focusAssignId, mode){
+  const isReception = SESSION.role==='reception';
+  const isHead = SESSION.role==='head';
+  const isSales = !isReception && !isHead;
+  mode = mode || 'view';
+
+  let html = `
+  <div class="modal-top">
+    <div>
+      <h3 style="font-size:18px;">${esc(lead.name)}</h3>
+      <div class="lead-meta">${esc(lead.phone)} · ${esc(lead.address||'—')}</div>
+      <div class="lead-meta">Source: ${esc(lead.source)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
+    </div>
+    <button class="close-x" id="closeModalBtn">&times;</button>
+  </div>`;
+
+  // Reception log section
+  html += `<div class="section-title">Reception Notes</div>`;
+  if(lead.receptionLog && lead.receptionLog.length){
+    lead.receptionLog.slice().reverse().forEach(log=>{
+      html += `<div class="log-entry">
+        <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)} ${log.status?`· <span class="badge badge-${log.status}">${STATUS_LABELS[log.status]||log.status}</span>`:''}</div>
+        ${esc(log.remarks)} ${log.nextFollowUp?`<div class="meta">Next call: ${fmtDate(log.nextFollowUp)}</div>`:''}
+      </div>`;
+    });
+  } else {
+    html += `<div class="empty" style="padding:8px 0;">No reception notes yet.</div>`;
+  }
+
+  // If reception and no assignments yet: 'view' mode shows only the follow-up form,
+  // 'refer' mode shows nothing here (the refer form is appended separately) so the two
+  // actions never appear stacked together.
+  if(isReception && !leadHasAssignments(lead)){
+    if(mode!=='refer'){
+      html += `
+      <div class="assign-block">
+        <div class="section-title" style="margin-top:0;">Add Follow-up / Update</div>
+        <label>Status</label>
+        <select id="recStatus">
+          <option value="followup">Interested – schedule follow-up</option>
+          <option value="lost">Not interested / Loose Lead</option>
+        </select>
+        <div id="recFollowupDateWrap">
+          <label>Next call date <span style="color:var(--bad);">*</span></label>
+          <input type="date" id="recNextDate" value="">
+        </div>
+        <label>Remarks</label>
+        <textarea id="recRemarks" placeholder="What did the customer say?"></textarea>
+        <button class="btn btn-primary btn-sm" id="saveRecLogBtn">Save Note</button>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-brass" id="referBtn">Refer to Sales Team</button>
+      </div>`;
+    }
+  } else if(!isSales){
+    // reception (already assigned) or head — allow referring to additional team too
+    html += `<div class="row-btns"><button class="btn btn-brass btn-sm" id="referBtn">Refer to (another) Sales Team</button></div>`;
+  }
+
+  // Assignments — sales viewers only ever see their own assignment on this lead,
+  // never another team's history; it should look like a fresh lead to work on.
+  const visibleAssignments = isSales
+    ? (lead.assignments||[]).filter(a=> a.team===SESSION.role && a.salesperson===SESSION.name)
+    : (lead.assignments||[]);
+  html += `<div class="section-title" style="margin-top:16px;">${isSales ? 'Your Assignment' : 'Sales Team History'}</div>`;
+  if(!visibleAssignments.length){
+    html += `<div class="empty" style="padding:8px 0;">Not yet referred to any sales team.</div>`;
+  } else {
+    visibleAssignments.forEach(a=>{
+      const mine = isSales && a.team===SESSION.role && a.salesperson===SESSION.name;
+      html += `<div class="assign-block" ${focusAssignId===a.id?'style="border-color:var(--brass);"':''}>
+        <div class="assign-head">
+          <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
+          <span class="badge badge-${a.status}">${STATUS_LABELS[a.status]}</span>
+        </div>
+        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''}</div>
+        ${(a.log||[]).slice().reverse().map(log=>`
+          <div class="log-entry">
+            <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)}</div>
+            ${esc(log.remarks)} ${log.nextFollowUp?`<div class="meta">Next call: ${fmtDate(log.nextFollowUp)}</div>`:''}
+          </div>`).join('')}
+        ${mine ? `
+          <div id="outcomeSection-${a.id}" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:10px;">
+            <div class="section-title" style="margin:0 0 6px;">Update Visit Outcome</div>
+            <label>Status</label>
+            <select class="assignStatusSel" data-assign="${a.id}">
+              <option value="pending" ${a.status==='pending'?'selected':''}>Pending Visit</option>
+              <option value="visited" ${a.status==='visited'?'selected':''}>Visited – No decision yet</option>
+              <option value="sale" ${a.status==='sale'?'selected':''}>Sale Done</option>
+              <option value="lost" ${a.status==='lost'?'selected':''}>Lost / Bought elsewhere</option>
+            </select>
+            <label>Product (if decided)</label>
+            <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
+            <label>Remarks</label>
+            <textarea class="assignRemarksInput" data-assign="${a.id}" placeholder="What happened at/after the visit?"></textarea>
+            <button class="btn btn-primary btn-sm saveAssignBtn" data-assign="${a.id}">Save Outcome</button>
+            <button class="btn btn-ghost btn-sm referFromAssignBtn" data-assign="${a.id}" data-lead="${lead.id}" style="margin-left:6px;">Refer to another team</button>
+          </div>
+          <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
+            <div class="section-title" style="margin:0 0 6px;">Log a Follow-up Call</div>
+            <label>Call remarks</label>
+            <textarea class="followupRemarksInput" data-assign="${a.id}" placeholder="What did the customer say on this call?"></textarea>
+            <label>Next call date</label>
+            <input type="date" class="followupDateInput" data-assign="${a.id}" value="${a.nextFollowUp||todayStr()}">
+            <button class="btn btn-brass btn-sm saveFollowupBtn" data-assign="${a.id}">Save Follow-up Call</button>
+          </div>` : ''}
+      </div>`;
+    });
+  }
+
+  return html;
+}
+
+/* ---------------- Refer to team form (inline mini-modal) ---------------- */
+function openReferForm(leadId, fromAssignId){
+  const lead = LEADS.find(l=>l.id===leadId);
+  const box = document.getElementById('modalBox');
+  const wrap = document.createElement('div');
+  wrap.className='assign-block';
+  wrap.id='referFormBlock';
+  wrap.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Refer ${esc(lead.name)} to a sales team</div>
+    <label>Team</label>
+    <select id="referTeamSel">
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <label>Salesperson</label>
+    <select id="referPersonSel"></select>
+    <label>Note (optional)</label>
+    <textarea id="referNote" placeholder="Anything the salesperson should know"></textarea>
+    <button class="btn btn-primary btn-sm" id="confirmReferBtn">Confirm Referral</button>
+    <button class="btn btn-ghost btn-sm" id="cancelReferBtn">Cancel</button>
+  `;
+  box.appendChild(wrap);
+  const teamSel = document.getElementById('referTeamSel');
+  const personSel = document.getElementById('referPersonSel');
+  function refreshPersonOptions(){
+    const list = STAFF[teamSel.value]||[];
+    personSel.innerHTML = list.length ? list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('') : `<option value="">— no login for this team yet, ask a Head —</option>`;
+  }
+  refreshPersonOptions();
+  teamSel.addEventListener('change', refreshPersonOptions);
+  document.getElementById('cancelReferBtn').addEventListener('click', ()=> wrap.remove());
+  document.getElementById('confirmReferBtn').addEventListener('click', async ()=>{
+    const team = teamSel.value;
+    const person = personSel.value;
+    if(!person){ toast('Add a salesperson name first'); return; }
+    const note = document.getElementById('referNote').value.trim();
+    const assignerName = SESSION.role==='head' ? `${SESSION.name} (Head)` : (SESSION.role==='reception' ? SESSION.name : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`);
+    const newAssign = {
+      id: uid(), team, assignedAt: new Date().toISOString(), assignedBy: assignerName,
+      salesperson: person, acknowledged:false, status:'pending', product:'',
+      log:[{timestamp:new Date().toISOString(), author:assignerName, remarks: note || 'Referred to team.', status:'pending'}]
+    };
+    if(!lead.assignments) lead.assignments=[];
+    lead.assignments.push(newAssign);
+    await saveLeads(LEADS);
+    toast(`Referred to ${TEAM_LABELS[team]} – ${person}`);
+    closeModal();
+    renderApp();
+  });
+}
+
+/* ---------------- Binding handlers ---------------- */
+function bindDynamicHandlers(){
+  document.querySelectorAll('[data-open-lead]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const mode = el.dataset.mode || 'view';
+      const leadId = el.dataset.openLead;
+      openLeadModal(leadId, el.dataset.focusAssign||null, mode, el.dataset.focusSection||null);
+      if(mode==='refer') setTimeout(()=>openReferForm(leadId), 0);
+    });
+  });
+
+  const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
+  if(saveNewLeadBtn){
+    saveNewLeadBtn.addEventListener('click', async ()=>{
+      const name = document.getElementById('newLeadName').value.trim();
+      const phone = document.getElementById('newLeadPhone').value.trim();
+      const address = document.getElementById('newLeadAddress').value.trim();
+      const source = document.getElementById('newLeadSource').value;
+      if(!name || !phone){ toast('Name and phone are required'); return; }
+      const isSalesAdding = SESSION.role!=='reception' && SESSION.role!=='head';
+      const lead = {
+        id: uid(), name, phone, address, source,
+        createdAt: new Date().toISOString(), createdBy: SESSION.name,
+        receptionLog:[],
+        assignments: isSalesAdding ? [{
+          id: uid(), team: SESSION.role, assignedAt: new Date().toISOString(), assignedBy: SESSION.name,
+          salesperson: SESSION.name, acknowledged:true, status:'pending', product:'',
+          log:[{timestamp:new Date().toISOString(), author:SESSION.name, remarks:'Lead added directly by salesperson.', status:'pending'}]
+        }] : []
+      };
+      LEADS.push(lead);
+      await saveLeads(LEADS);
+      toast('Lead saved');
+      ACTIVE_TAB = isSalesAdding ? 'myleads' : 'inbox';
+      renderApp();
+    });
+  }
+
+  const searchBox = document.getElementById('searchBox');
+  const filterTeam = document.getElementById('filterTeam');
+  const filterStatus = document.getElementById('filterStatus');
+  const filterSales = document.getElementById('filterSales');
+  function refreshResults(){
+    document.getElementById('allLeadsResults').innerHTML =
+      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'');
+    document.querySelectorAll('[data-open-lead]').forEach(el=>{
+      el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+    });
+  }
+  if(searchBox) searchBox.addEventListener('input', refreshResults);
+  if(filterTeam) filterTeam.addEventListener('change', refreshResults);
+  if(filterStatus) filterStatus.addEventListener('change', refreshResults);
+  if(filterSales) filterSales.addEventListener('change', refreshResults);
+
+  const exportBtn = document.getElementById('exportCsvBtn');
+  if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
+
+  const weekStartInput = document.getElementById('weekStartInput');
+  const weekEndInput = document.getElementById('weekEndInput');
+  if(weekStartInput) weekStartInput.addEventListener('change', ()=>{ getWeekRange().start = weekStartInput.value; renderApp(); });
+  if(weekEndInput) weekEndInput.addEventListener('change', ()=>{ getWeekRange().end = weekEndInput.value; renderApp(); });
+  const exportWeeklyCsvBtn = document.getElementById('exportWeeklyCsvBtn');
+  if(exportWeeklyCsvBtn) exportWeeklyCsvBtn.addEventListener('click', downloadWeeklyCSV);
+  bindRangeLeadsFilters('wk', getWeekRange());
+
+  const monthStartInput = document.getElementById('monthStartInput');
+  const monthEndInput = document.getElementById('monthEndInput');
+  if(monthStartInput) monthStartInput.addEventListener('change', ()=>{ getMonthRange().start = monthStartInput.value; renderApp(); });
+  if(monthEndInput) monthEndInput.addEventListener('change', ()=>{ getMonthRange().end = monthEndInput.value; renderApp(); });
+  const exportMonthlyCsvBtn = document.getElementById('exportMonthlyCsvBtn');
+  if(exportMonthlyCsvBtn) exportMonthlyCsvBtn.addEventListener('click', downloadMonthlyCSV);
+  bindRangeLeadsFilters('mo', getMonthRange());
+
+  if(document.getElementById('createLoginBtn')) bindManageLoginsHandlers();
+}
+
+function bindModalHandlers(lead){
+  document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+
+  const referBtn = document.getElementById('referBtn');
+  if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
+
+  document.querySelectorAll('.referFromAssignBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> openReferForm(btn.dataset.lead, btn.dataset.assign));
+  });
+
+  const saveRecLogBtn = document.getElementById('saveRecLogBtn');
+  if(saveRecLogBtn){
+    saveRecLogBtn.addEventListener('click', async ()=>{
+      const status = document.getElementById('recStatus').value;
+      const remarks = document.getElementById('recRemarks').value.trim();
+      const nextDate = document.getElementById('recNextDate').value;
+      if(!remarks){ toast('Add a remark'); return; }
+      if(status==='followup' && !nextDate){ toast('Choose a follow-up date'); return; }
+      if(!lead.receptionLog) lead.receptionLog=[];
+      lead.receptionLog.push({
+        timestamp:new Date().toISOString(), author:SESSION.name, remarks, status,
+        nextFollowUp: status==='followup' ? nextDate : null
+      });
+      await saveLeads(LEADS);
+      toast('Note saved');
+      closeModal();
+      renderApp();
+    });
+    const recStatusSel = document.getElementById('recStatus');
+    const wrap = document.getElementById('recFollowupDateWrap');
+    recStatusSel.addEventListener('change', ()=>{ wrap.style.display = recStatusSel.value==='followup' ? 'block':'none'; });
+  }
+
+  document.querySelectorAll('.saveAssignBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const aid = btn.dataset.assign;
+      const a = lead.assignments.find(x=>x.id===aid);
+      const status = document.querySelector(`.assignStatusSel[data-assign="${aid}"]`).value;
+      const product = document.querySelector(`.assignProductInput[data-assign="${aid}"]`).value.trim();
+      const remarks = document.querySelector(`.assignRemarksInput[data-assign="${aid}"]`).value.trim();
+      if(!remarks){ toast('Add a remark for this update'); return; }
+      a.status = status;
+      a.product = product;
+      a.acknowledged = true;
+      a.nextFollowUp = null;
+      if(!a.log) a.log=[];
+      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:null});
+      await saveLeads(LEADS);
+      toast('Outcome saved');
+      closeModal();
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll('.saveFollowupBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const aid = btn.dataset.assign;
+      const a = lead.assignments.find(x=>x.id===aid);
+      const remarks = document.querySelector(`.followupRemarksInput[data-assign="${aid}"]`).value.trim();
+      const nextDate = document.querySelector(`.followupDateInput[data-assign="${aid}"]`).value;
+      if(!remarks){ toast('Add call remarks first'); return; }
+      a.status = 'followup';
+      a.acknowledged = true;
+      a.nextFollowUp = nextDate || null;
+      if(!a.log) a.log=[];
+      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status:'followup', nextFollowUp:a.nextFollowUp});
+      await saveLeads(LEADS);
+      toast('Follow-up call logged');
+      closeModal();
+      renderApp();
+    });
+  });
+}
+
+/* ---------------- Init ---------------- */
+(async function init(){
+  try{
+    await ensureAuth();
+    LEADS = await loadLeads();
+    STAFF = await loadStaff();
+    subscribeToLiveUpdates();
+    document.getElementById('connectingScreen').classList.add('hidden');
+    document.getElementById('loginScreen').classList.remove('hidden');
+  }catch(e){
+    console.error('Startup failed', e);
+    document.getElementById('connectingMsg').innerHTML =
+      'Something went wrong loading the app.<br><br>Try reloading this page. If it keeps happening, check your internet connection.';
+  }
+})();
+</script>
+</body>
+</html>

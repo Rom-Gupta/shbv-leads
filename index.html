@@ -767,6 +767,10 @@ function viewManageLogins(){
 
   <div class="section-title" style="margin-top:24px;color:var(--bad);">Danger Zone</div>
   <div class="card" style="border-color:var(--bad);">
+    <div class="lead-meta" style="margin-bottom:10px;">Permanently deletes every lead and every follow-up. Staff logins are kept as-is. This cannot be undone.</div>
+    <button class="btn btn-sm" style="background:var(--bad);color:#fff;" id="deleteAllLeadsBtn">Delete All Leads</button>
+  </div>
+  <div class="card" style="border-color:var(--bad);margin-top:10px;">
     <div class="lead-meta" style="margin-bottom:10px;">Permanently deletes every lead, every follow-up, and every staff login (Head accounts keep their names but passwords are cleared too). This cannot be undone.</div>
     <button class="btn btn-sm" style="background:var(--bad);color:#fff;" id="resetAllDataBtn">Reset All Data</button>
   </div>
@@ -810,8 +814,19 @@ function bindManageLoginsHandlers(){
       renderApp();
     });
   });
+  const deleteAllLeadsBtn = document.getElementById('deleteAllLeadsBtn');
+  if(deleteAllLeadsBtn) deleteAllLeadsBtn.addEventListener('click', deleteAllLeads);
   const resetAllBtn = document.getElementById('resetAllDataBtn');
   if(resetAllBtn) resetAllBtn.addEventListener('click', factoryReset);
+}
+
+async function deleteAllLeads(){
+  if(!confirm(`This will permanently delete all ${LEADS.length} leads and their follow-up history. Staff logins are kept. Continue?`)) return;
+  if(!confirm('Are you absolutely sure? This cannot be undone.')) return;
+  LEADS = [];
+  await saveLeads(LEADS);
+  toast('All leads deleted.');
+  renderApp();
 }
 
 async function factoryReset(){
@@ -1136,6 +1151,7 @@ function bindRangeLeadsFilters(prefix, range){
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
+    bindDeleteLeadCardButtons();
   }
   if(search) search.addEventListener('input', refresh);
   if(team) team.addEventListener('change', refresh);
@@ -1157,6 +1173,7 @@ function leadCardHead(l){
     </div>
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full History</button>
+      <button class="btn btn-sm deleteLeadCardBtn" style="background:var(--bad);color:#fff;" data-lead-id="${l.id}" data-lead-name="${esc(l.name)}">Delete</button>
     </div>
   </div>`;
 }
@@ -1417,6 +1434,13 @@ function renderLeadDetail(lead, focusAssignId, mode){
     });
   }
 
+  if(isHead){
+    html += `
+    <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px;">
+      <button class="btn btn-sm" style="background:var(--bad);color:#fff;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>
+    </div>`;
+  }
+
   return html;
 }
 
@@ -1471,6 +1495,20 @@ function openReferForm(leadId, fromAssignId){
 }
 
 /* ---------------- Binding handlers ---------------- */
+function bindDeleteLeadCardButtons(){
+  document.querySelectorAll('.deleteLeadCardBtn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const id = btn.dataset.leadId, name = btn.dataset.leadName;
+      if(!confirm(`Permanently delete the lead "${name}"? This cannot be undone.`)) return;
+      LEADS = LEADS.filter(l=>l.id!==id);
+      await saveLeads(LEADS);
+      toast('Lead deleted');
+      renderApp();
+    });
+  });
+}
+
 function bindDynamicHandlers(){
   document.querySelectorAll('[data-open-lead]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1480,6 +1518,7 @@ function bindDynamicHandlers(){
       if(mode==='refer') setTimeout(()=>openReferForm(leadId), 0);
     });
   });
+  bindDeleteLeadCardButtons();
 
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
@@ -1518,6 +1557,7 @@ function bindDynamicHandlers(){
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
+    bindDeleteLeadCardButtons();
   }
   if(searchBox) searchBox.addEventListener('input', refreshResults);
   if(filterTeam) filterTeam.addEventListener('change', refreshResults);
@@ -1551,6 +1591,18 @@ function bindModalHandlers(lead){
 
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
+
+  const deleteLeadBtn = document.getElementById('deleteLeadBtn');
+  if(deleteLeadBtn){
+    deleteLeadBtn.addEventListener('click', async ()=>{
+      if(!confirm(`Permanently delete the lead "${deleteLeadBtn.dataset.leadName}"? This cannot be undone.`)) return;
+      LEADS = LEADS.filter(l=>l.id!==deleteLeadBtn.dataset.leadId);
+      await saveLeads(LEADS);
+      toast('Lead deleted');
+      closeModal();
+      renderApp();
+    });
+  }
 
   document.querySelectorAll('.referFromAssignBtn').forEach(btn=>{
     btn.addEventListener('click', ()=> openReferForm(btn.dataset.lead, btn.dataset.assign));

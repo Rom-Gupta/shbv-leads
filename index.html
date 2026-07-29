@@ -313,6 +313,7 @@ function subscribeToLiveUpdates(){
 function normalizeLead(l){
   if(!l.receptionLog) l.receptionLog = [];
   if(!l.assignments) l.assignments = [];
+  if(!l.crossSellDismissed) l.crossSellDismissed = [];
   l.receptionLog.forEach(log=>{
     if(log.nextFollowUp===undefined) log.nextFollowUp = null;
   });
@@ -506,6 +507,21 @@ document.getElementById('logoutBtn').addEventListener('click', ()=>{
 
 /* ---------------- Derived helpers ---------------- */
 function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }
+// Cross-sell: once ANY department has closed a sale on this lead, the other
+// departments that were never referred are a cross-sell opportunity — unless
+// someone explicitly marked "no need" for that department on this lead.
+function leadHasSaleAnywhere(lead){
+  return (lead.assignments||[]).some(a=>a.status==='sale');
+}
+function crossSellPendingDepartments(lead){
+  if(!leadHasSaleAnywhere(lead)) return [];
+  const referredTeams = new Set((lead.assignments||[]).map(a=>a.team));
+  const dismissed = new Set(lead.crossSellDismissed||[]);
+  return Object.keys(TEAM_LABELS).filter(team=> !referredTeams.has(team) && !dismissed.has(team));
+}
+function crossSellOpportunityLeads(){
+  return LEADS.filter(l=> crossSellPendingDepartments(l).length>0);
+}
 
 function myAssignments(lead){
   if(!lead.assignments) return [];
@@ -554,16 +570,19 @@ function receptionDueTodayCount(){
 function tabsFor(role){
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
+    {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'all', label:'All Leads'},
   ];
   if(role==='head') return [
     {id:'overview', label:'Overview'},
+    {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Daily Reports'},
     {id:'weekly', label:'Weekly Report'},
     {id:'monthly', label:'Monthly Report'},
+    {id:'add', label:'+ New Lead'},
     {id:'all', label:'All Leads'},
     {id:'logins', label:'Manage Logins'},
   ];
@@ -594,15 +613,18 @@ async function renderApp(){
   const area = document.getElementById('viewArea');
   if(SESSION.role==='reception'){
     if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox();
+    else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else area.innerHTML = viewAllLeads(true);
   } else if(SESSION.role==='head'){
     if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
+    else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='reports') area.innerHTML = viewReports();
     else if(ACTIVE_TAB==='weekly') area.innerHTML = viewWeeklyReport();
     else if(ACTIVE_TAB==='monthly') area.innerHTML = viewMonthlyReport();
+    else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
     else area.innerHTML = viewAllLeads(true);
   } else {
@@ -669,6 +691,42 @@ function viewUpcomingFollowups(){
         <button class="btn btn-ghost btn-sm" data-open-lead="${e.lead.id}">View</button>
       </div>
     </div>`).join('');
+}
+
+/* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
+function viewCrossSell(){
+  const leads = crossSellOpportunityLeads();
+  if(!leads.length) return `<div class="empty">No cross-sell opportunities right now — every customer who bought something has either been offered everything else, or it's been marked not needed.</div>`;
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;">Customers who bought from one department but haven't been offered the others yet. Call them, then refer directly — or mark "No need" if they're only renovating one area.</div>
+  ${leads.map(l=>{
+    const soldFrom = (l.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
+    const pending = crossSellPendingDepartments(l);
+    return `
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(l.name)}</div>
+          <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)}</div>
+          <div class="lead-meta">Bought: <b>${esc(soldFrom)}</b></div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+        ${pending.map(team=>`
+          <div class="card-row">
+            <span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[team]}: Pending</span>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-brass btn-sm crossSellReferBtn" data-lead-id="${l.id}" data-team="${team}">Refer</button>
+              <button class="btn btn-ghost btn-sm crossSellDismissBtn" data-lead-id="${l.id}" data-team="${team}">No need</button>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="row-btns" style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full Lead</button>
+      </div>
+    </div>`;
+  }).join('')}
+  `;
 }
 
 /* ---------------- Reception: Inbox ---------------- */
@@ -1545,6 +1603,29 @@ function renderLeadDetail(lead, focusAssignId, mode){
     }
   }
 
+  // Cross-sell tracking — once one department has closed a sale, flag any other
+  // department never referred as an opportunity, with a way to refer it directly
+  // or mark "no need" (e.g. customer is only renovating one area).
+  if(!isSales){
+    const pendingDepts = crossSellPendingDepartments(lead);
+    if(pendingDepts.length){
+      const soldFrom = (lead.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
+      html += `
+      <div class="assign-block" style="border-color:var(--brass);">
+        <div class="section-title" style="margin-top:0;">💡 Cross-sell Opportunity</div>
+        <div class="lead-meta" style="margin-bottom:8px;">Bought from: <b>${esc(soldFrom)}</b>. Not yet offered:</div>
+        ${pendingDepts.map(team=>`
+          <div class="card-row" style="margin-bottom:6px;">
+            <span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[team]}: Pending</span>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-brass btn-sm crossSellReferBtn" data-lead-id="${lead.id}" data-team="${team}">Refer</button>
+              <button class="btn btn-ghost btn-sm crossSellDismissBtn" data-lead-id="${lead.id}" data-team="${team}">No need</button>
+            </div>
+          </div>`).join('')}
+      </div>`;
+    }
+  }
+
   // Reception log section
   html += `<div class="section-title">Reception Notes</div>`;
   if(lead.receptionLog && lead.receptionLog.length){
@@ -1661,7 +1742,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
 }
 
 /* ---------------- Refer to team form (inline mini-modal) ---------------- */
-function openReferForm(leadId, fromAssignId){
+function openReferForm(leadId, fromAssignId, presetTeam){
   const lead = LEADS.find(l=>l.id===leadId);
   const box = document.getElementById('modalBox');
   const wrap = document.createElement('div');
@@ -1671,7 +1752,7 @@ function openReferForm(leadId, fromAssignId){
     <div class="section-title" style="margin-top:0;">Refer ${esc(lead.name)} to a sales team</div>
     <label>Team</label>
     <select id="referTeamSel">
-      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}" ${k===presetTeam?'selected':''}>${v}</option>`).join('')}
     </select>
     <label>Salesperson</label>
     <select id="referPersonSel"></select>
@@ -1681,6 +1762,7 @@ function openReferForm(leadId, fromAssignId){
     <button class="btn btn-ghost btn-sm" id="cancelReferBtn">Cancel</button>
   `;
   box.appendChild(wrap);
+  wrap.scrollIntoView({behavior:'smooth', block:'start'});
   const teamSel = document.getElementById('referTeamSel');
   const personSel = document.getElementById('referPersonSel');
   function refreshPersonOptions(){
@@ -1735,6 +1817,25 @@ function bindDynamicHandlers(){
     });
   });
   bindDeleteLeadCardButtons();
+
+  document.querySelectorAll('.crossSellReferBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const leadId = btn.dataset.leadId, team = btn.dataset.team;
+      openLeadModal(leadId, null, 'view', null);
+      setTimeout(()=>openReferForm(leadId, null, team), 0);
+    });
+  });
+  document.querySelectorAll('.crossSellDismissBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const lead = LEADS.find(l=>l.id===btn.dataset.leadId);
+      if(!lead) return;
+      if(!lead.crossSellDismissed) lead.crossSellDismissed = [];
+      if(!lead.crossSellDismissed.includes(btn.dataset.team)) lead.crossSellDismissed.push(btn.dataset.team);
+      await saveLeads(LEADS);
+      toast(`Marked ${TEAM_LABELS[btn.dataset.team]} as not needed`);
+      renderApp();
+    });
+  });
 
   const myLeadsSearchBox = document.getElementById('myLeadsSearchBox');
   if(myLeadsSearchBox){
@@ -1799,7 +1900,7 @@ function bindDynamicHandlers(){
       LEADS.push(lead);
       await saveLeads(LEADS);
       toast('Lead saved');
-      ACTIVE_TAB = isSalesAdding ? 'myleads' : 'inbox';
+      ACTIVE_TAB = isSalesAdding ? 'myleads' : (SESSION.role==='head' ? 'all' : 'inbox');
       renderApp();
     });
   }
@@ -1855,6 +1956,20 @@ function bindModalHandlers(lead){
 
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
+
+  document.querySelectorAll('.crossSellReferBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> openReferForm(btn.dataset.leadId, null, btn.dataset.team));
+  });
+  document.querySelectorAll('.crossSellDismissBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!lead.crossSellDismissed) lead.crossSellDismissed = [];
+      if(!lead.crossSellDismissed.includes(btn.dataset.team)) lead.crossSellDismissed.push(btn.dataset.team);
+      await saveLeads(LEADS);
+      toast(`Marked ${TEAM_LABELS[btn.dataset.team]} as not needed`);
+      closeModal();
+      renderApp();
+    });
+  });
 
   const deleteLeadBtn = document.getElementById('deleteLeadBtn');
   if(deleteLeadBtn){

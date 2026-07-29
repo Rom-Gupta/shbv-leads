@@ -507,14 +507,13 @@ document.getElementById('logoutBtn').addEventListener('click', ()=>{
 
 /* ---------------- Derived helpers ---------------- */
 function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }
-// Cross-sell: once ANY department has closed a sale on this lead, the other
-// departments that were never referred are a cross-sell opportunity — unless
-// someone explicitly marked "no need" for that department on this lead.
+// Cross-sell: any department that's never been referred on this lead is a
+// pending opportunity — unless someone explicitly marked "no need" for it.
+// Applies whether or not a sale has already closed elsewhere on this lead.
 function leadHasSaleAnywhere(lead){
   return (lead.assignments||[]).some(a=>a.status==='sale');
 }
 function crossSellPendingDepartments(lead){
-  if(!leadHasSaleAnywhere(lead)) return [];
   const referredTeams = new Set((lead.assignments||[]).map(a=>a.team));
   const dismissed = new Set(lead.crossSellDismissed||[]);
   return Object.keys(TEAM_LABELS).filter(team=> !referredTeams.has(team) && !dismissed.has(team));
@@ -696,11 +695,12 @@ function viewUpcomingFollowups(){
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
 function viewCrossSell(){
   const leads = crossSellOpportunityLeads();
-  if(!leads.length) return `<div class="empty">No cross-sell opportunities right now — every customer who bought something has either been offered everything else, or it's been marked not needed.</div>`;
+  if(!leads.length) return `<div class="empty">No cross-sell opportunities right now — every lead has either had every department offered, or it's been marked not needed.</div>`;
   return `
-  <div class="lead-meta" style="margin-bottom:12px;">Customers who bought from one department but haven't been offered the others yet. Call them, then refer directly — or mark "No need" if they're only renovating one area.</div>
+  <div class="lead-meta" style="margin-bottom:12px;">Customers who haven't been offered every department yet — whether or not they've bought anything so far. Call them, then refer directly — or mark "No need" if a department genuinely doesn't apply.</div>
   ${leads.map(l=>{
     const soldFrom = (l.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
+    const touchedFrom = (l.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
     const pending = crossSellPendingDepartments(l);
     return `
     <div class="card">
@@ -708,7 +708,9 @@ function viewCrossSell(){
         <div>
           <div class="lead-name">${esc(l.name)}</div>
           <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)}</div>
-          <div class="lead-meta">Bought: <b>${esc(soldFrom)}</b></div>
+          ${soldFrom ? `<div class="lead-meta">Bought: <b>${esc(soldFrom)}</b></div>` :
+            touchedFrom ? `<div class="lead-meta">So far: ${esc(touchedFrom)}</div>` :
+            `<div class="lead-meta">Not yet referred to any department.</div>`}
         </div>
       </div>
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
@@ -870,6 +872,7 @@ function leadCardSales(lead, a){
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${isAssignmentStale(a) ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">⏳ No activity in ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)} days — give this one a visit or call.</div>` : ''}
     ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">${canFollowUp ? 'Log a follow-up call or update this again' : 'Update this again'} to move it off your active list.</div>` : ''}
+    ${(()=>{ const pd = crossSellPendingDepartments(lead).filter(t=>t!==a.team); return pd.length ? `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">💡 Not yet offered: <b>${pd.map(t=>TEAM_LABELS[t]).join(', ')}</b></div>` : ''; })()}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
       ${canFollowUp ? `<button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>` : ''}
@@ -1603,17 +1606,23 @@ function renderLeadDetail(lead, focusAssignId, mode){
     }
   }
 
-  // Cross-sell tracking — once one department has closed a sale, flag any other
-  // department never referred as an opportunity, with a way to refer it directly
-  // or mark "no need" (e.g. customer is only renovating one area).
-  if(!isSales){
+  // Cross-sell tracking — any department never referred is an opportunity, with
+  // a way to refer it directly or mark "no need" (e.g. customer is only
+  // renovating one area). Visible to everyone, including the salesperson
+  // handling the lead, so they know what else the customer hasn't been offered.
+  {
     const pendingDepts = crossSellPendingDepartments(lead);
     if(pendingDepts.length){
       const soldFrom = (lead.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
+      const touchedFrom = (lead.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
       html += `
       <div class="assign-block" style="border-color:var(--brass);">
         <div class="section-title" style="margin-top:0;">💡 Cross-sell Opportunity</div>
-        <div class="lead-meta" style="margin-bottom:8px;">Bought from: <b>${esc(soldFrom)}</b>. Not yet offered:</div>
+        <div class="lead-meta" style="margin-bottom:8px;">${
+          soldFrom ? `Bought from: <b>${esc(soldFrom)}</b>. Not yet offered:` :
+          touchedFrom ? `So far: ${esc(touchedFrom)}. Not yet offered:` :
+          `Not yet referred anywhere. Not yet offered:`
+        }</div>
         ${pendingDepts.map(team=>`
           <div class="card-row" style="margin-bottom:6px;">
             <span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[team]}: Pending</span>

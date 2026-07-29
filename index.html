@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="theme-color" content="#123B3A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SHBV Leads">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
@@ -335,6 +343,19 @@ const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Do
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function normalizePhone(p){ return (p||'').replace(/\D/g,''); }
+// Builds a wa.me click-to-chat link, assuming Indian numbers when no country code is present.
+function whatsappLink(p){
+  let digits = normalizePhone(p);
+  if(!digits) return null;
+  if(digits.length===10) digits = '91'+digits;
+  else if(digits.length===11 && digits.startsWith('0')) digits = '91'+digits.slice(1);
+  return `https://wa.me/${digits}`;
+}
+function whatsappIcon(p){
+  const link = whatsappLink(p);
+  if(!link) return '';
+  return `<a href="${link}" target="_blank" rel="noopener" title="Chat on WhatsApp" style="margin-left:6px;text-decoration:none;color:var(--ok);font-weight:700;" onclick="event.stopPropagation();">💬</a>`;
+}
 function findLeadsByPhone(phone){
   const norm = normalizePhone(phone);
   if(!norm) return [];
@@ -640,7 +661,7 @@ function viewUpcomingFollowups(){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(e.lead.name)}</div>
-          <div class="lead-meta">${esc(e.lead.phone)} · ${e.label}</div>
+          <div class="lead-meta">${esc(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
         </div>
         ${followupBadgeFor(e.date)}
       </div>
@@ -684,7 +705,7 @@ function leadCardReception(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
@@ -769,7 +790,7 @@ function leadCardSales(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
-        <div class="lead-meta">${esc(lead.phone)} · ${esc(lead.address||'—')}</div>
+        <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
@@ -850,7 +871,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(x.lead.name)}</div>
-            <div class="lead-meta">${esc(x.lead.phone)}</div>
+            <div class="lead-meta">${esc(x.lead.phone)}${whatsappIcon(x.lead.phone)}</div>
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
               ${x.stale.map(a=>`<span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)}d idle</span>`).join('')}
             </div>
@@ -1296,7 +1317,7 @@ function leadCardHead(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
       </div>
@@ -1428,7 +1449,7 @@ function viewReports(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(l.name)}</div>
-            <div class="lead-meta">${esc(l.phone)} · ${esc(l.source)}</div>
+            <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
             ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
               <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
                 ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]}: needs follow-up</span>`).join('')}
@@ -1481,7 +1502,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   <div class="modal-top">
     <div>
       <h3 style="font-size:18px;">${esc(lead.name)}</h3>
-      <div class="lead-meta">${esc(lead.phone)} · ${esc(lead.address||'—')}</div>
+      <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
       <div class="lead-meta">Source: ${esc(lead.source)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
     </div>
     <button class="close-x" id="closeModalBtn">&times;</button>

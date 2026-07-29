@@ -313,6 +313,7 @@ function normalizeLead(l){
     if(a.acknowledged===undefined) a.acknowledged = true;
     if(a.product===undefined) a.product = '';
     if(a.nextFollowUp===undefined) a.nextFollowUp = null;
+    if(a.pendingConfirmation===undefined) a.pendingConfirmation = false;
     a.log.forEach(log=>{
       if(log.nextFollowUp===undefined) log.nextFollowUp = null;
     });
@@ -650,7 +651,7 @@ function viewMyLeads(mode){
         if(mode==='due'){
           if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
         } else {
-          if(a.status!=='sale' && a.status!=='lost') assigns.push({lead:l, a});
+          if((a.status!=='sale' && a.status!=='lost') || a.pendingConfirmation) assigns.push({lead:l, a});
         }
       }
     });
@@ -697,6 +698,7 @@ function leadCardSales(lead, a){
       <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
     </div>
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
+    ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">Log a follow-up call or update this again to move it off your active list.</div>` : ''}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
       <button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>
@@ -1235,21 +1237,28 @@ function groupTodayActivityByLead(){
   }
   LEADS.forEach(l=>{
     (l.receptionLog||[]).forEach(log=>{
-      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
+      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', salesperson:null, referredBy:null, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
     });
     (l.assignments||[]).forEach(a=>{
       (a.log||[]).forEach(log=>{
-        if(log.timestamp.slice(0,10)===today) push(l, {team:TEAM_LABELS[a.team], author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
+        if(log.timestamp.slice(0,10)===today) push(l, {team:TEAM_LABELS[a.team], salesperson:a.salesperson, referredBy:a.assignedBy, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
       });
     });
     if(l.createdAt.slice(0,10)===today && l.source==='Walk-in'){
-      push(l, {team:'Reception (Walk-in)', author:'—', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
+      push(l, {team:'Reception (Walk-in)', salesperson:null, referredBy:null, author:'—', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
     }
   });
   const groups = [...map.values()];
   groups.forEach(g=> g.entries.sort((a,b)=>b.time.localeCompare(a.time)));
   groups.sort((x,y)=> y.entries[0].time.localeCompare(x.entries[0].time));
   return groups;
+}
+// Builds a "Sanitary — Avinash (referred by Preeti)" style label for an activity entry.
+function entryWhoLabel(e){
+  if(!e.salesperson) return e.team;
+  let label = `${e.team} — ${esc(e.salesperson)}`;
+  if(e.referredBy && e.referredBy!==e.salesperson) label += ` (referred by ${esc(e.referredBy)})`;
+  return label;
 }
 
 function viewReports(){
@@ -1276,7 +1285,7 @@ function viewReports(){
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
         ${g.entries.map(e=>`
           <div class="log-entry">
-            <div class="meta">${e.team} · ${fmtDateTime(e.time)}</div>
+            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
             <span class="badge badge-${e.status==='sale'?'sale':'visited'}">${e.status==='sale'?'Sale Done':(e.status==='new visit'?'Walk-in':'Visited')}</span>
           </div>`).join('')}
       </div>`).join('')}
@@ -1289,7 +1298,7 @@ function viewReports(){
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
         ${g.entries.map(e=>`
           <div class="log-entry">
-            <div class="meta">${e.team} · by ${esc(e.author)} · ${fmtDateTime(e.time)}</div>
+            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
             ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
           </div>`).join('')}
       </div>`).join('')}
@@ -1664,7 +1673,9 @@ function bindModalHandlers(lead){
     btn.addEventListener('click', async ()=>{
       const aid = btn.dataset.assign;
       const a = lead.assignments.find(x=>x.id===aid);
-      const wasAlreadySale = a.status==='sale';
+      const prevStatus = a.status;
+      const wasAlreadySale = prevStatus==='sale';
+      const wasAlreadyResolved = prevStatus==='sale' || prevStatus==='lost';
       const status = document.querySelector(`.assignStatusSel[data-assign="${aid}"]`).value;
       const product = document.querySelector(`.assignProductInput[data-assign="${aid}"]`).value.trim();
       const remarks = document.querySelector(`.assignRemarksInput[data-assign="${aid}"]`).value.trim();
@@ -1676,6 +1687,11 @@ function bindModalHandlers(lead){
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
       // updating the outcome should never silently cancel or change a scheduled follow-up.
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
+      // Don't let a lead silently vanish from Active Leads the instant it's marked
+      // Sale/Lost. It stays visible until the salesperson does one more thing on it —
+      // either logs a follow-up call, or updates it again — which is what actually
+      // clears pendingConfirmation below.
+      a.pendingConfirmation = (status==='sale' || status==='lost') && !wasAlreadyResolved;
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is marked Sale Done: auto-schedule a reception
@@ -1718,6 +1734,7 @@ function bindModalHandlers(lead){
       // as it was) — this only ever updates the follow-up date, kept fully independent.
       a.nextFollowUp = noFuture ? null : nextDate;
       a.acknowledged = true;
+      a.pendingConfirmation = false; // logging a call is exactly the confirmation that clears it from limbo
       if(!a.log) a.log=[];
       a.log.push({
         timestamp:new Date().toISOString(), author:SESSION.name, remarks,

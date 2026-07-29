@@ -160,6 +160,10 @@
   .stat .l{font-size:11.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;}
 
   .searchbar{margin-bottom:10px;}
+  .chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:12px;}
+  .chart-tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:0 1px 2px rgba(21,37,36,.03), 0 2px 8px rgba(21,37,36,.04);}
+  .chart-tile-title{font-size:12.5px;font-weight:700;color:var(--teal);margin-bottom:8px;text-align:center;}
+  .chart-box{position:relative;width:100%;max-width:220px;height:220px;margin:0 auto;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
   .filter-row select{width:auto;margin-bottom:0;font-size:13px;padding:7px 10px;}
   .helper{font-size:12px;color:var(--ink-soft);margin-top:-4px;margin-bottom:10px;}
@@ -1008,9 +1012,10 @@ function makePieChart(canvasId, labels, data, title){
     },
     options:{
       responsive:true,
+      maintainAspectRatio:false,
       plugins:{
-        legend:{ position:'bottom', labels:{ font:{family:"'Segoe UI',sans-serif", size:12}, color:'#3d504f', padding:12 } },
-        title:{ display:!!title, text:title, font:{family:'Georgia,serif', size:14}, color:'#123B3A' }
+        legend:{ position:'bottom', labels:{ font:{family:"'Segoe UI',sans-serif", size:10.5}, color:'#3d504f', padding:8, boxWidth:11 } },
+        title:{ display:!!title, text:title, font:{family:'Georgia,serif', size:13}, color:'#123B3A' }
       }
     }
   });
@@ -1022,43 +1027,28 @@ function viewAnalytics(){
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{ if(a.status==='sale') salesByDept[a.team]++; }));
   const deptsWithSales = Object.keys(TEAM_LABELS).filter(t=> salesByDept[t]>0);
 
-  const bySalesperson = {}; // team -> {name: count}
-  Object.keys(TEAM_LABELS).forEach(t=> bySalesperson[t]={});
-  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
-    if(a.status==='sale'){
-      bySalesperson[a.team][a.salesperson] = (bySalesperson[a.team][a.salesperson]||0)+1;
-    }
-  }));
-
   const bySource = {};
   SOURCE_OPTIONS.forEach(s=> bySource[s]=0);
   LEADS.forEach(l=> { if(bySource[l.source]===undefined) bySource[l.source]=0; bySource[l.source]++; });
+  const hasSourceData = Object.values(bySource).some(v=>v>0);
 
-  if(!deptsWithSales.length && LEADS.every(l=>!l.source)){
+  if(!deptsWithSales.length && !hasSourceData){
     return `<div class="empty">Not enough data yet — add some leads and close a few sales to see charts here.</div>`;
   }
 
-  let html = `<div class="section-title">Sales Done — By Department</div>`;
+  let html = `<div class="chart-grid">`;
+
   if(deptsWithSales.length){
-    html += `<div class="card"><canvas id="chartByDept"></canvas></div>`;
-  } else {
-    html += `<div class="empty">No sales closed yet.</div>`;
+    html += `<div class="chart-tile"><div class="chart-tile-title">Sales Done — By Department</div><div class="chart-box"><canvas id="chartByDept"></canvas></div></div>`;
   }
-
-  html += `<div class="section-title" style="margin-top:20px;">Sales Done — By Salesperson (per Department)</div>`;
-  if(!deptsWithSales.length){
-    html += `<div class="empty">No sales closed yet.</div>`;
-  } else {
-    html += `<div style="display:grid;grid-template-columns:1fr;gap:12px;">`;
-    deptsWithSales.forEach(team=>{
-      html += `<div class="card"><div class="lead-meta" style="margin-bottom:6px;font-weight:700;color:var(--teal);">${TEAM_LABELS[team]}</div><canvas id="chartSales_${team}"></canvas></div>`;
-    });
-    html += `</div>`;
+  if(hasSourceData){
+    html += `<div class="chart-tile"><div class="chart-tile-title">Leads — By Source</div><div class="chart-box"><canvas id="chartBySource"></canvas></div></div>`;
   }
+  deptsWithSales.forEach(team=>{
+    html += `<div class="chart-tile"><div class="chart-tile-title">Sales — ${TEAM_LABELS[team]} by Salesperson</div><div class="chart-box"><canvas id="chartSales_${team}"></canvas></div></div>`;
+  });
 
-  html += `<div class="section-title" style="margin-top:20px;">Leads — By Source</div>`;
-  html += `<div class="card"><canvas id="chartBySource"></canvas></div>`;
-
+  html += `</div>`;
   return html;
 }
 function renderAnalyticsCharts(){

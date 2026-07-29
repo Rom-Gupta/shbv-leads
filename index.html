@@ -775,11 +775,25 @@ function viewAllMyLeads(){
     <div class="stat"><div class="n">${sold}</div><div class="l">Sale Done</div></div>
     <div class="stat"><div class="n">${inProgress}</div><div class="l">In Progress</div></div>
     <div class="stat"><div class="n">${lost}</div><div class="l">Lost</div></div>
-  </div>`;
-  if(!assigns.length) return html + `<div class="empty">No leads have ever been referred to you.</div>`;
-  assigns.sort((x,y)=> y.a.assignedAt.localeCompare(x.a.assignedAt));
-  html += assigns.map(({lead,a})=>leadCardSales(lead,a)).join('');
+  </div>
+  <div class="searchbar"><input type="text" id="myLeadsSearchBox" placeholder="Search by name or phone..."></div>
+  <div id="myLeadsSearchResults">${renderMyLeadsSearchResults('')}</div>`;
   return html;
+}
+function renderMyLeadsSearchResults(search){
+  let assigns = [];
+  LEADS.forEach(l=>{
+    (l.assignments||[]).forEach(a=>{
+      if(a.team===SESSION.role && a.salesperson===SESSION.name) assigns.push({lead:l, a});
+    });
+  });
+  if(search){
+    const s = search.toLowerCase();
+    assigns = assigns.filter(({lead})=> lead.name.toLowerCase().includes(s) || (lead.phone||'').includes(s));
+  }
+  if(!assigns.length) return `<div class="empty">${search ? 'No matching leads.' : 'No leads have ever been referred to you.'}</div>`;
+  assigns.sort((x,y)=> y.a.assignedAt.localeCompare(x.a.assignedAt));
+  return assigns.map(({lead,a})=>leadCardSales(lead,a)).join('');
 }
 
 function leadCardSales(lead, a){
@@ -1721,6 +1735,22 @@ function bindDynamicHandlers(){
     });
   });
   bindDeleteLeadCardButtons();
+
+  const myLeadsSearchBox = document.getElementById('myLeadsSearchBox');
+  if(myLeadsSearchBox){
+    myLeadsSearchBox.addEventListener('input', ()=>{
+      document.getElementById('myLeadsSearchResults').innerHTML = renderMyLeadsSearchResults(myLeadsSearchBox.value);
+      document.querySelectorAll('[data-open-lead]').forEach(el=>{
+        el.addEventListener('click', ()=>{
+          const mode = el.dataset.mode || 'view';
+          const leadId = el.dataset.openLead;
+          openLeadModal(leadId, el.dataset.focusAssign||null, mode, el.dataset.focusSection||null);
+          if(mode==='refer') setTimeout(()=>openReferForm(leadId), 0);
+        });
+      });
+      bindDeleteLeadCardButtons();
+    });
+  }
 
   function checkDuplicatePhone(){
     const warnBox = document.getElementById('dupPhoneWarning');

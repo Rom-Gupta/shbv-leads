@@ -109,6 +109,7 @@
   .badge-sale{background:var(--ok-bg);color:var(--ok);}
   .badge-followup{background:var(--warn-bg);color:var(--warn);}
   .badge-lost{background:var(--bad-bg);color:var(--bad);}
+  .badge-no-followup{background:#EEE9DC;color:#7A6A3F;}
   .badge-new{background:var(--bad);color:#fff;}
 
   .section-title{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--brass);font-weight:700;margin:14px 0 6px;}
@@ -328,7 +329,7 @@ let ACTIVE_TAB = 'inbox';
 
 const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
 const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
-const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost'};
+const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -493,7 +494,7 @@ function newAssignmentsCountForMe(){
 function dueTodayCountForMe(){
   let n=0;
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
-    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status==='followup' && isDueToday(a.nextFollowUp)) n++;
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) n++;
   }));
   return n;
 }
@@ -634,7 +635,7 @@ function viewMyLeads(mode){
     (l.assignments||[]).forEach(a=>{
       if(a.team===SESSION.role && a.salesperson===SESSION.name){
         if(mode==='due'){
-          if(a.status==='followup' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
+          if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
         } else {
           if(a.status!=='sale' && a.status!=='lost') assigns.push({lead:l, a});
         }
@@ -656,7 +657,7 @@ function viewAllMyLeads(){
   const total = assigns.length;
   const sold = assigns.filter(x=>x.a.status==='sale').length;
   const lost = assigns.filter(x=>x.a.status==='lost').length;
-  const inProgress = assigns.filter(x=>['pending','visited','followup'].includes(x.a.status)).length;
+  const inProgress = assigns.filter(x=>['pending','visited'].includes(x.a.status)).length;
   let html = `
   <div class="stat-grid">
     <div class="stat"><div class="n">${total}</div><div class="l">Total Leads</div></div>
@@ -682,7 +683,7 @@ function leadCardSales(lead, a){
       </div>
       <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
     </div>
-    ${a.nextFollowUp && a.status==='followup' ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b></div>`:''}
+    ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
       <button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>
@@ -705,7 +706,7 @@ function viewHeadOverview(){
   }).length;
   const dueAcrossAll = LEADS.reduce((n,l)=>{
     let c=0;
-    (l.assignments||[]).forEach(a=>{ if(a.status==='followup' && isDueToday(a.nextFollowUp)) c++; });
+    (l.assignments||[]).forEach(a=>{ if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) c++; });
     if(!leadHasAssignments(l)){
       const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
       if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
@@ -723,7 +724,7 @@ function viewHeadOverview(){
   ${dueAcrossAll===0 ? `<div class="empty">Nothing overdue right now.</div>` : ''}
   ${LEADS.filter(l=>{
       let due=false;
-      (l.assignments||[]).forEach(a=>{ if(a.status==='followup' && isDueToday(a.nextFollowUp)) due=true; });
+      (l.assignments||[]).forEach(a=>{ if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) due=true; });
       if(!leadHasAssignments(l)){
         const last=l.receptionLog?.length?l.receptionLog[l.receptionLog.length-1]:null;
         if(!last || (last.status==='followup'&&isDueToday(last.nextFollowUp))) due=true;
@@ -1209,7 +1210,7 @@ function leadCurrentlyNeedsFollowup(l){
     const last = l.receptionLog[l.receptionLog.length-1];
     return last.status !== 'followup' && last.status !== 'lost';
   }
-  return l.assignments.some(a=> a.status!=='sale' && a.status!=='lost' && a.status!=='followup');
+  return l.assignments.some(a=> a.status!=='sale' && a.status!=='lost' && !a.nextFollowUp);
 }
 
 function groupTodayActivityByLead(){
@@ -1426,8 +1427,14 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <div class="section-title" style="margin:0 0 6px;">Log a Follow-up Call</div>
             <label>Call remarks</label>
             <textarea class="followupRemarksInput" data-assign="${a.id}" placeholder="What did the customer say on this call?"></textarea>
-            <label>Next call date</label>
-            <input type="date" class="followupDateInput" data-assign="${a.id}" value="${a.nextFollowUp||todayStr()}">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
+              <input type="checkbox" class="noFutureFollowupChk" data-assign="${a.id}" style="width:auto;margin:0;">
+              No future follow-up needed
+            </label>
+            <div class="followupDateWrap-${a.id}">
+              <label>Next call date</label>
+              <input type="date" class="followupDateInput" data-assign="${a.id}" value="${a.nextFollowUp||todayStr()}">
+            </div>
             <button class="btn btn-brass btn-sm saveFollowupBtn" data-assign="${a.id}">Save Follow-up Call</button>
           </div>` : ''}
       </div>`;
@@ -1642,13 +1649,24 @@ function bindModalHandlers(lead){
       a.status = status;
       a.product = product;
       a.acknowledged = true;
-      a.nextFollowUp = null;
+      // Resolving the deal (sale/lost) clears any pending follow-up plan.
+      // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
+      // updating the outcome should never silently cancel or change a scheduled follow-up.
+      if(status==='sale' || status==='lost') a.nextFollowUp = null;
       if(!a.log) a.log=[];
-      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:null});
+      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
       await saveLeads(LEADS);
       toast('Outcome saved');
       closeModal();
       renderApp();
+    });
+  });
+
+  document.querySelectorAll('.noFutureFollowupChk').forEach(chk=>{
+    const aid = chk.dataset.assign;
+    const wrap = document.querySelector(`.followupDateWrap-${aid}`);
+    chk.addEventListener('change', ()=>{
+      if(wrap) wrap.style.display = chk.checked ? 'none' : 'block';
     });
   });
 
@@ -1657,15 +1675,22 @@ function bindModalHandlers(lead){
       const aid = btn.dataset.assign;
       const a = lead.assignments.find(x=>x.id===aid);
       const remarks = document.querySelector(`.followupRemarksInput[data-assign="${aid}"]`).value.trim();
+      const noFuture = document.querySelector(`.noFutureFollowupChk[data-assign="${aid}"]`).checked;
       const nextDate = document.querySelector(`.followupDateInput[data-assign="${aid}"]`).value;
       if(!remarks){ toast('Add call remarks first'); return; }
-      a.status = 'followup';
+      if(!noFuture && !nextDate){ toast('Choose a follow-up date, or tick "No future follow-up needed"'); return; }
+      // Logging a call never changes the outcome status (Pending/Visited/Sale/Lost stays exactly
+      // as it was) — this only ever updates the follow-up date, kept fully independent.
+      a.nextFollowUp = noFuture ? null : nextDate;
       a.acknowledged = true;
-      a.nextFollowUp = nextDate || null;
       if(!a.log) a.log=[];
-      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status:'followup', nextFollowUp:a.nextFollowUp});
+      a.log.push({
+        timestamp:new Date().toISOString(), author:SESSION.name, remarks,
+        status: noFuture ? 'no-followup' : 'followup',
+        nextFollowUp: a.nextFollowUp
+      });
       await saveLeads(LEADS);
-      toast('Follow-up call logged');
+      toast(noFuture ? 'Call logged — no future follow-up set' : 'Follow-up call logged');
       closeModal();
       renderApp();
     });

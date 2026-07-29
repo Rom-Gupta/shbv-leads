@@ -527,11 +527,13 @@ function receptionDueTodayCount(){
 function tabsFor(role){
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
+    {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'all', label:'All Leads'},
   ];
   if(role==='head') return [
     {id:'overview', label:'Overview'},
+    {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Daily Reports'},
     {id:'weekly', label:'Weekly Report'},
     {id:'monthly', label:'Monthly Report'},
@@ -541,6 +543,7 @@ function tabsFor(role){
   return [
     {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe()},
     {id:'due', label:'Due Today', badge:()=>dueTodayCountForMe()},
+    {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'allmine', label:'All My Leads'},
   ];
@@ -564,10 +567,12 @@ async function renderApp(){
   const area = document.getElementById('viewArea');
   if(SESSION.role==='reception'){
     if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox();
+    else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else area.innerHTML = viewAllLeads(true);
   } else if(SESSION.role==='head'){
     if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
+    else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='reports') area.innerHTML = viewReports();
     else if(ACTIVE_TAB==='weekly') area.innerHTML = viewWeeklyReport();
     else if(ACTIVE_TAB==='monthly') area.innerHTML = viewMonthlyReport();
@@ -576,10 +581,67 @@ async function renderApp(){
   } else {
     if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');
+    else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else area.innerHTML = viewAllMyLeads();
   }
   bindDynamicHandlers();
+}
+
+/* ---------------- Upcoming Follow-ups (shared across all roles) ---------------- */
+function followupBadgeFor(dateStr){
+  const t = todayStr();
+  if(dateStr < t) return `<span class="badge badge-lost">Overdue</span>`;
+  if(dateStr === t) return `<span class="badge badge-followup">Due Today</span>`;
+  return `<span class="badge badge-pending">${fmtDate(dateStr)}</span>`;
+}
+function collectUpcomingFollowups(){
+  const entries = [];
+  if(SESSION.role==='head'){
+    LEADS.forEach(l=>{
+      (l.assignments||[]).forEach(a=>{
+        if(a.nextFollowUp) entries.push({lead:l, label:`${TEAM_LABELS[a.team]} — ${a.salesperson}`, date:a.nextFollowUp});
+      });
+      if(l.receptionLog && l.receptionLog.length){
+        const last = l.receptionLog[l.receptionLog.length-1];
+        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp});
+      }
+    });
+  } else if(SESSION.role==='reception'){
+    LEADS.forEach(l=>{
+      if(l.receptionLog && l.receptionLog.length){
+        const last = l.receptionLog[l.receptionLog.length-1];
+        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp});
+      }
+    });
+  } else {
+    LEADS.forEach(l=>{
+      (l.assignments||[]).forEach(a=>{
+        if(a.team===SESSION.role && a.salesperson===SESSION.name && a.nextFollowUp){
+          entries.push({lead:l, label:TEAM_LABELS[a.team], date:a.nextFollowUp});
+        }
+      });
+    });
+  }
+  entries.sort((x,y)=> x.date.localeCompare(y.date));
+  return entries;
+}
+function viewUpcomingFollowups(){
+  const entries = collectUpcomingFollowups();
+  if(!entries.length) return `<div class="empty">No upcoming follow-ups scheduled.</div>`;
+  return entries.map(e=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(e.lead.name)}</div>
+          <div class="lead-meta">${esc(e.lead.phone)} · ${e.label}</div>
+        </div>
+        ${followupBadgeFor(e.date)}
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${e.lead.id}">View</button>
+      </div>
+    </div>`).join('');
 }
 
 /* ---------------- Reception: Inbox ---------------- */

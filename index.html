@@ -521,6 +521,13 @@ function crossSellPendingDepartments(lead){
 function crossSellOpportunityLeads(){
   return LEADS.filter(l=> crossSellPendingDepartments(l).length>0);
 }
+// Same idea, scoped to leads this specific salesperson is handling.
+function crossSellOpportunityLeadsForMe(){
+  return LEADS.filter(l=>
+    crossSellPendingDepartments(l).length>0 &&
+    (l.assignments||[]).some(a=>a.team===SESSION.role && a.salesperson===SESSION.name)
+  );
+}
 
 function myAssignments(lead){
   if(!lead.assignments) return [];
@@ -588,6 +595,7 @@ function tabsFor(role){
   return [
     {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe()},
     {id:'due', label:'Due Today', badge:()=>dueTodayCountForMe()},
+    {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeadsForMe().length},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'allmine', label:'All My Leads'},
@@ -629,6 +637,7 @@ async function renderApp(){
   } else {
     if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');
+    else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSellMine();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else area.innerHTML = viewAllMyLeads();
@@ -693,16 +702,11 @@ function viewUpcomingFollowups(){
 }
 
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
-function viewCrossSell(){
-  const leads = crossSellOpportunityLeads();
-  if(!leads.length) return `<div class="empty">No cross-sell opportunities right now — every lead has either had every department offered, or it's been marked not needed.</div>`;
+function crossSellLeadCard(l){
+  const soldFrom = (l.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
+  const touchedFrom = (l.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
+  const pending = crossSellPendingDepartments(l);
   return `
-  <div class="lead-meta" style="margin-bottom:12px;">Customers who haven't been offered every department yet — whether or not they've bought anything so far. Call them, then refer directly — or mark "No need" if a department genuinely doesn't apply.</div>
-  ${leads.map(l=>{
-    const soldFrom = (l.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
-    const touchedFrom = (l.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
-    const pending = crossSellPendingDepartments(l);
-    return `
     <div class="card">
       <div class="card-row">
         <div>
@@ -727,7 +731,21 @@ function viewCrossSell(){
         <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full Lead</button>
       </div>
     </div>`;
-  }).join('')}
+}
+function viewCrossSell(){
+  const leads = crossSellOpportunityLeads();
+  if(!leads.length) return `<div class="empty">No cross-sell opportunities right now — every lead has either had every department offered, or it's been marked not needed.</div>`;
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;">Customers who haven't been offered every department yet — whether or not they've bought anything so far. Call them, then refer directly — or mark "No need" if a department genuinely doesn't apply.</div>
+  ${leads.map(crossSellLeadCard).join('')}
+  `;
+}
+function viewCrossSellMine(){
+  const leads = crossSellOpportunityLeadsForMe();
+  if(!leads.length) return `<div class="empty">Nothing to cross-sell right now on your leads.</div>`;
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;">Your customers who haven't been offered every department yet. Refer them to another team, or mark "No need" if it genuinely doesn't apply.</div>
+  ${leads.map(crossSellLeadCard).join('')}
   `;
 }
 
@@ -872,7 +890,6 @@ function leadCardSales(lead, a){
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${isAssignmentStale(a) ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">⏳ No activity in ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)} days — give this one a visit or call.</div>` : ''}
     ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">${canFollowUp ? 'Log a follow-up call or update this again' : 'Update this again'} to move it off your active list.</div>` : ''}
-    ${(()=>{ const pd = crossSellPendingDepartments(lead).filter(t=>t!==a.team); return pd.length ? `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">💡 Not yet offered: <b>${pd.map(t=>TEAM_LABELS[t]).join(', ')}</b></div>` : ''; })()}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
       ${canFollowUp ? `<button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>` : ''}

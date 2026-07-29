@@ -605,6 +605,12 @@ function leadCardReception(l){
       : `<span class="badge badge-followup">Follow-up ${fmtDate(last.nextFollowUp)}</span>`;
     else if(last.status==='lost') statusBadge = `<span class="badge badge-lost">Loose Lead</span>`;
   }
+  let feedbackBanner = '';
+  if(last && last.kind==='feedback-sale'){
+    feedbackBanner = `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--ok-bg);color:var(--ok);border-radius:8px;font-weight:600;">🎉 Feedback call — this customer BOUGHT. Call to check they're happy.</div>`;
+  } else if(last && last.kind==='feedback-lost'){
+    feedbackBanner = `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--bad-bg);color:var(--bad);border-radius:8px;font-weight:600;">⚠ Feedback call — this customer did NOT buy (Lost). Call tactfully to understand why.</div>`;
+  }
   return `
   <div class="card">
     <div class="card-row">
@@ -613,6 +619,7 @@ function leadCardReception(l){
         <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('')}</div>` : ''}
+        ${feedbackBanner}
       </div>
       ${statusBadge}
     </div>
@@ -1682,6 +1689,7 @@ function bindModalHandlers(lead){
       const a = lead.assignments.find(x=>x.id===aid);
       const prevStatus = a.status;
       const wasAlreadySale = prevStatus==='sale';
+      const wasAlreadyLost = prevStatus==='lost';
       const wasAlreadyResolved = prevStatus==='sale' || prevStatus==='lost';
       const status = document.querySelector(`.assignStatusSel[data-assign="${aid}"]`).value;
       const product = document.querySelector(`.assignProductInput[data-assign="${aid}"]`).value.trim();
@@ -1701,16 +1709,22 @@ function bindModalHandlers(lead){
       a.pendingConfirmation = (status==='sale' || status==='lost') && !wasAlreadyResolved;
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
-      // First time this assignment is marked Sale Done: auto-schedule a reception
-      // feedback call for 2 days later, so someone checks in after the sale.
-      if(status==='sale' && !wasAlreadySale){
+      // First time this assignment is resolved (Sale Done or Lost): auto-schedule a
+      // reception feedback call 2 days later. The remarks spell out which outcome it
+      // was so reception knows exactly how to open the conversation — congratulating
+      // on a sale, or tactfully checking in on a lost lead.
+      if((status==='sale' && !wasAlreadySale) || (status==='lost' && !wasAlreadyLost)){
         const d = new Date(); d.setDate(d.getDate()+2);
         const feedbackDate = d.toISOString().slice(0,10);
         if(!lead.receptionLog) lead.receptionLog=[];
+        const remarksText = status==='sale'
+          ? `Feedback Call (SALE DONE) — auto-scheduled after ${TEAM_LABELS[a.team]} sale (${a.product||'no product noted'}). Customer bought — call to check satisfaction/after-sales.`
+          : `Feedback Call (LOST) — auto-scheduled after ${TEAM_LABELS[a.team]} marked this lead as Lost. Customer did not buy — call tactfully to understand why / see if they can be won back.`;
         lead.receptionLog.push({
           timestamp:new Date().toISOString(), author:'System (auto)',
-          remarks:`Feedback Call — auto-scheduled after ${TEAM_LABELS[a.team]} sale (${a.product||'no product noted'}).`,
-          status:'followup', nextFollowUp: feedbackDate
+          remarks: remarksText,
+          status:'followup', nextFollowUp: feedbackDate,
+          kind: status==='sale' ? 'feedback-sale' : 'feedback-lost'
         });
       }
       await saveLeads(LEADS);

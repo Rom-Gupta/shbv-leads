@@ -687,6 +687,7 @@ function viewAllMyLeads(){
 
 function leadCardSales(lead, a){
   const badgeClass = 'badge-'+a.status;
+  const canFollowUp = a.status==='pending' || a.status==='visited';
   return `
   <div class="card">
     <div class="card-row">
@@ -698,10 +699,10 @@ function leadCardSales(lead, a){
       <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
     </div>
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
-    ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">Log a follow-up call or update this again to move it off your active list.</div>` : ''}
+    ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">${canFollowUp ? 'Log a follow-up call or update this again' : 'Update this again'} to move it off your active list.</div>` : ''}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
-      <button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>
+      ${canFollowUp ? `<button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>` : ''}
     </div>
   </div>`;
 }
@@ -1454,6 +1455,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <button class="btn btn-primary btn-sm saveAssignBtn" data-assign="${a.id}">Save Outcome</button>
             <button class="btn btn-ghost btn-sm referFromAssignBtn" data-assign="${a.id}" data-lead="${lead.id}" style="margin-left:6px;">Refer to another team</button>
           </div>
+          ${(a.status==='pending' || a.status==='visited') ? `
           <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
             <div class="section-title" style="margin:0 0 6px;">Log a Follow-up Call</div>
             <label>Call remarks</label>
@@ -1467,7 +1469,12 @@ function renderLeadDetail(lead, focusAssignId, mode){
               <input type="date" class="followupDateInput" data-assign="${a.id}" value="${a.nextFollowUp||todayStr()}">
             </div>
             <button class="btn btn-brass btn-sm saveFollowupBtn" data-assign="${a.id}">Save Follow-up Call</button>
-          </div>` : ''}
+          </div>` : `
+          <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
+            <div class="lead-meta">${a.status==='sale'
+              ? 'Sale done — no manual follow-up needed here. Reception has a Feedback Call auto-scheduled 2 days after the sale.'
+              : 'Marked as lost — no follow-up needed.'}</div>
+          </div>`}` : ''}
       </div>`;
     });
   }

@@ -334,6 +334,12 @@ const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Do
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+function normalizePhone(p){ return (p||'').replace(/\D/g,''); }
+function findLeadsByPhone(phone){
+  const norm = normalizePhone(phone);
+  if(!norm) return [];
+  return LEADS.filter(l => normalizePhone(l.phone) === norm);
+}
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }
 function isDueToday(dateStr){ if(!dateStr) return false; return dateStr <= todayStr(); }
@@ -701,6 +707,7 @@ function viewAddLead(){
     <input type="text" id="newLeadName" placeholder="Full name">
     <label>Phone number</label>
     <input type="tel" id="newLeadPhone" placeholder="10-digit number">
+    <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
     <label>Address</label>
     <input type="text" id="newLeadAddress" placeholder="Address (optional)">
     <label>Lead source</label>
@@ -1634,6 +1641,25 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
 
+  function checkDuplicatePhone(){
+    const warnBox = document.getElementById('dupPhoneWarning');
+    if(!warnBox) return;
+    const phoneVal = document.getElementById('newLeadPhone').value;
+    const matches = findLeadsByPhone(phoneVal);
+    if(matches.length){
+      const typedName = document.getElementById('newLeadName').value.trim().toLowerCase();
+      const nameAlsoMatches = typedName && matches.some(l=>l.name.trim().toLowerCase()===typedName);
+      warnBox.innerHTML = `⚠ This number already exists for <b>${esc(matches[0].name)}</b> (added ${fmtDate(matches[0].createdAt)})${matches.length>1?` and ${matches.length-1} other lead(s)`:''}.${nameAlsoMatches?' Name matches too — this looks like the same customer.':''}`;
+      warnBox.classList.remove('hidden');
+    } else {
+      warnBox.classList.add('hidden');
+    }
+  }
+  const newLeadPhoneInput = document.getElementById('newLeadPhone');
+  const newLeadNameInput = document.getElementById('newLeadName');
+  if(newLeadPhoneInput) newLeadPhoneInput.addEventListener('input', checkDuplicatePhone);
+  if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
+
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
     saveNewLeadBtn.addEventListener('click', async ()=>{
@@ -1642,6 +1668,12 @@ function bindDynamicHandlers(){
       const address = document.getElementById('newLeadAddress').value.trim();
       const source = document.getElementById('newLeadSource').value;
       if(!name || !phone){ toast('Name and phone are required'); return; }
+      // Same phone number already exists — prompt before creating a possible duplicate.
+      const dupMatches = findLeadsByPhone(phone);
+      if(dupMatches.length){
+        const proceed = confirm(`A lead with this phone number already exists: ${dupMatches[0].name} (added ${fmtDate(dupMatches[0].createdAt)}). Add this as a new lead anyway?`);
+        if(!proceed) return;
+      }
       const isSalesAdding = SESSION.role!=='reception' && SESSION.role!=='head';
       const lead = {
         id: uid(), name, phone, address, source,

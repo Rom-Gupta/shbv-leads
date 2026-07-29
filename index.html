@@ -501,13 +501,24 @@ function dueTodayCountForMe(){
 function receptionUnassignedLeads(){
   return LEADS.filter(l=>!leadHasAssignments(l));
 }
+function receptionHasPendingFollowup(l){
+  if(!l.receptionLog || !l.receptionLog.length) return false;
+  const last = l.receptionLog[l.receptionLog.length-1];
+  return last.status==='followup';
+}
+// Leads reception is actively responsible for right now: anything not yet referred,
+// PLUS anything (even already referred/sold) where reception itself has a pending
+// follow-up on the books — e.g. an auto-scheduled post-sale feedback call.
+function receptionActionableLeads(){
+  return LEADS.filter(l=> !leadHasAssignments(l) || receptionHasPendingFollowup(l));
+}
 function receptionDueTodayCount(){
-  return receptionUnassignedLeads().filter(l=>{
+  return receptionActionableLeads().filter(l=>{
     if(l.receptionLog && l.receptionLog.length){
       const last = l.receptionLog[l.receptionLog.length-1];
       return last.status==='followup' && isDueToday(last.nextFollowUp);
     }
-    return true; // never contacted yet — always "due"
+    return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
   }).length;
 }
 
@@ -570,10 +581,10 @@ async function renderApp(){
   bindDynamicHandlers();
 }
 
-/* ---------------- Reception: Inbox (unassigned leads) ---------------- */
+/* ---------------- Reception: Inbox ---------------- */
 function viewReceptionInbox(){
-  const list = receptionUnassignedLeads();
-  if(!list.length) return `<div class="empty">No unassigned leads right now. New leads you add will appear here until referred to a sales team.</div>`;
+  const list = receptionActionableLeads();
+  if(!list.length) return `<div class="empty">Nothing needs your attention right now. New leads you add will appear here until referred, and any follow-up calls reception owes will show up here too.</div>`;
   // sort: due/never-contacted first
   const sorted = [...list].sort((a,b)=>{
     const da = a.receptionLog?.length ? a.receptionLog[a.receptionLog.length-1].nextFollowUp||'' : '0000';
@@ -585,6 +596,7 @@ function viewReceptionInbox(){
 
 function leadCardReception(l){
   const last = l.receptionLog && l.receptionLog.length ? l.receptionLog[l.receptionLog.length-1] : null;
+  const alreadyAssigned = leadHasAssignments(l);
   let statusBadge = `<span class="badge badge-pending">New</span>`;
   if(last){
     if(last.status==='followup') statusBadge = isDueToday(last.nextFollowUp)
@@ -599,12 +611,13 @@ function leadCardReception(l){
         <div class="lead-name">${esc(l.name)}</div>
         <div class="lead-meta">${esc(l.phone)} · ${esc(l.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
+        ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('')}</div>` : ''}
       </div>
       ${statusBadge}
     </div>
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}" data-mode="view">View / Follow-up</button>
-      <button class="btn btn-brass btn-sm" data-open-lead="${l.id}" data-mode="refer">Refer to Sales Team</button>
+      ${!alreadyAssigned ? `<button class="btn btn-brass btn-sm" data-open-lead="${l.id}" data-mode="refer">Refer to Sales Team</button>` : ''}
     </div>
   </div>`;
 }
@@ -1283,21 +1296,31 @@ function viewReports(){
 
   <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
   ${needsFollowup.length===0 ? `<div class="empty">Everyone active has a follow-up plan in place.</div>` :
-    needsFollowup.map(l=>`
+    needsFollowup.map(l=>{
+      const assignments = l.assignments||[];
+      const missing = assignments.filter(a=> a.status!=='sale' && a.status!=='lost' && !a.nextFollowUp);
+      const covered = assignments.filter(a=> a.status==='sale' || a.status==='lost' || a.nextFollowUp);
+      return `
       <div class="card">
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(l.name)}</div>
             <div class="lead-meta">${esc(l.phone)} · ${esc(l.source)}</div>
-            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-              ${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('') || '<span class="lead-meta">Not yet referred to sales</span>'}
-            </div>
+            ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
+              <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]}: needs follow-up</span>`).join('')}
+              </div>
+              ${covered.length ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                ${covered.map(a=>`<span class="team-tag" style="background:#9aa39c;">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}${a.nextFollowUp?' (has plan)':''}</span>`).join('')}
+              </div>` : ''}
+            `}
           </div>
         </div>
         <div class="row-btns">
           <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View</button>
         </div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
   `;
 }
 
@@ -1354,10 +1377,10 @@ function renderLeadDetail(lead, focusAssignId, mode){
     html += `<div class="empty" style="padding:8px 0;">No reception notes yet.</div>`;
   }
 
-  // If reception and no assignments yet: 'view' mode shows only the follow-up form,
-  // 'refer' mode shows nothing here (the refer form is appended separately) so the two
-  // actions never appear stacked together.
-  if(isReception && !leadHasAssignments(lead)){
+  // Reception can always log a note/follow-up call on any lead, referred or not —
+  // e.g. a courtesy call, or a post-sale feedback call. 'refer' mode shows nothing here
+  // (the refer form is appended separately) so the two actions never appear stacked together.
+  if(isReception){
     if(mode!=='refer'){
       html += `
       <div class="assign-block">
@@ -1376,11 +1399,10 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <button class="btn btn-primary btn-sm" id="saveRecLogBtn">Save Note</button>
       </div>
       <div class="row-btns">
-        <button class="btn btn-brass" id="referBtn">Refer to Sales Team</button>
+        <button class="btn btn-brass" id="referBtn">${leadHasAssignments(lead) ? 'Refer to (another) Sales Team' : 'Refer to Sales Team'}</button>
       </div>`;
     }
-  } else if(!isSales){
-    // reception (already assigned) or head — allow referring to additional team too
+  } else if(isHead){
     html += `<div class="row-btns"><button class="btn btn-brass btn-sm" id="referBtn">Refer to (another) Sales Team</button></div>`;
   }
 
@@ -1642,6 +1664,7 @@ function bindModalHandlers(lead){
     btn.addEventListener('click', async ()=>{
       const aid = btn.dataset.assign;
       const a = lead.assignments.find(x=>x.id===aid);
+      const wasAlreadySale = a.status==='sale';
       const status = document.querySelector(`.assignStatusSel[data-assign="${aid}"]`).value;
       const product = document.querySelector(`.assignProductInput[data-assign="${aid}"]`).value.trim();
       const remarks = document.querySelector(`.assignRemarksInput[data-assign="${aid}"]`).value.trim();
@@ -1655,6 +1678,18 @@ function bindModalHandlers(lead){
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
+      // First time this assignment is marked Sale Done: auto-schedule a reception
+      // feedback call for 2 days later, so someone checks in after the sale.
+      if(status==='sale' && !wasAlreadySale){
+        const d = new Date(); d.setDate(d.getDate()+2);
+        const feedbackDate = d.toISOString().slice(0,10);
+        if(!lead.receptionLog) lead.receptionLog=[];
+        lead.receptionLog.push({
+          timestamp:new Date().toISOString(), author:'System (auto)',
+          remarks:`Feedback Call — auto-scheduled after ${TEAM_LABELS[a.team]} sale (${a.product||'no product noted'}).`,
+          status:'followup', nextFollowUp: feedbackDate
+        });
+      }
       await saveLeads(LEADS);
       toast('Outcome saved');
       closeModal();

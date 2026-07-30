@@ -270,6 +270,39 @@ function ensureAuth(){
 }
 
 /* ---------------- Storage helpers ---------------- */
+/* ---------------- Head-only Connections (private — never loaded for other roles) ---------------- */
+let CONNECTIONS = [];
+function normalizeConnection(c){
+  if(!c.log) c.log = [];
+  if(c.nextFollowUp===undefined) c.nextFollowUp = null;
+  if(c.occupation===undefined) c.occupation = '';
+  c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
+  return c;
+}
+async function loadConnections(){
+  try{
+    let raw;
+    if(USE_FIREBASE){
+      const doc = await db.collection('shbv_kv').doc('connections-private').get();
+      raw = doc.exists ? JSON.parse(doc.data().value) : [];
+    } else {
+      const r = await window.storage.get('connections-private', true);
+      raw = r ? JSON.parse(r.value) : [];
+    }
+    return raw.map(normalizeConnection);
+  }catch(e){ console.error('load connections failed', e); return []; }
+}
+async function saveConnections(list){
+  try{
+    if(USE_FIREBASE){
+      await db.collection('shbv_kv').doc('connections-private').set({value: JSON.stringify(list), updatedAt:new Date().toISOString()});
+    } else {
+      await window.storage.set('connections-private', JSON.stringify(list), true);
+    }
+    return true;
+  }catch(e){ console.error('save connections failed', e); toast('Could not save — check your connection.'); return false; }
+}
+
 async function loadLeads(){
   try{
     let raw;
@@ -488,7 +521,7 @@ function renderStaffAuthArea(){
   }
 }
 
-function loginAs(role, name){
+async function loginAs(role, name){
   SESSION = {role, name};
   ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : 'myleads');
   ACTIVE_SUBTAB = null;
@@ -496,6 +529,15 @@ function loginAs(role, name){
   document.getElementById('mainApp').classList.remove('hidden');
   const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':TEAM_LABELS[role]+' Sales');
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
+  if(role==='head'){
+    CONNECTIONS = await loadConnections();
+    if(USE_FIREBASE){
+      db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
+        CONNECTIONS = doc.exists ? JSON.parse(doc.data().value).map(normalizeConnection) : [];
+        if(SESSION && SESSION.role==='head') renderApp();
+      });
+    }
+  }
   renderApp();
 }
 
@@ -623,6 +665,7 @@ function tabsFor(role){
     {id:'analytics', label:'Analytics'},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell'}]},
+    {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount()},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
@@ -692,6 +735,7 @@ async function renderApp(){
     else if(ACTIVE_TAB==='leads'){
       area.innerHTML = ACTIVE_SUBTAB==='crosssell' ? viewCrossSell() : viewAllLeads(true);
     }
+    else if(ACTIVE_TAB==='connections') area.innerHTML = viewConnections();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='reports'){
       if(ACTIVE_SUBTAB==='weekly') area.innerHTML = viewWeeklyReport();
@@ -1129,6 +1173,117 @@ function renderAnalyticsCharts(){
   if(sourceLabels.length){
     makePieChart('chartBySource', sourceLabels, sourceLabels.map(s=>bySource[s]));
   }
+}
+
+/* ---------------- Head: Private Connections (never visible to any other role) ---------------- */
+function connectionsDueTodayCount(){
+  return CONNECTIONS.filter(c=> c.nextFollowUp && isDueToday(c.nextFollowUp)).length;
+}
+function viewConnections(){
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Private to you — no other role or staff login can see this, ever.
+  </div>
+  <div class="card">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Add New Connection</h3>
+    <label>Name</label>
+    <input type="text" id="connName" placeholder="Full name">
+    <label>Phone number</label>
+    <input type="tel" id="connPhone" placeholder="10-digit number">
+    <label>Work / Occupation</label>
+    <input type="text" id="connWork" placeholder="e.g. Architect, Contractor, Interior Designer">
+    <label>Remarks</label>
+    <textarea id="connRemarks" placeholder="What did they need? Any context to remember..."></textarea>
+    <label>Follow-up date (optional — e.g. if they said "call me next week")</label>
+    <input type="date" id="connNextDate">
+    <button class="btn btn-primary btn-full" id="saveConnBtn">Save Connection</button>
+  </div>
+  <div class="section-title">Your Connections</div>
+  <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
+  <div id="connResults">${renderConnectionResults('')}</div>
+  `;
+}
+function connectionCard(c){
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(c.name)}</div>
+        <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+        <div class="lead-meta">Added ${fmtDate(c.createdAt)}</div>
+      </div>
+      ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
+    </div>
+    <div class="log-entry" style="margin-top:8px;"><div class="meta">Initial note</div>${esc(c.remarks)}</div>
+    ${(c.log||[]).slice().reverse().map(l=>`
+      <div class="log-entry">
+        <div class="meta">${fmtDateTime(l.timestamp)}</div>
+        ${esc(l.remarks)} ${l.nextFollowUp?`<div class="meta">Next call: ${fmtDate(l.nextFollowUp)}</div>`:''}
+      </div>`).join('')}
+    <div class="assign-block" style="margin-top:10px;">
+      <div class="section-title" style="margin:0 0 6px;">Log a Follow-up</div>
+      <textarea class="connFollowupRemarks" data-conn="${c.id}" placeholder="What did they say on this call?"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
+        <input type="checkbox" class="connNoFuture" data-conn="${c.id}" style="width:auto;margin:0;">
+        No future follow-up needed
+      </label>
+      <div class="connDateWrap-${c.id}">
+        <label>Next call date</label>
+        <input type="date" class="connFollowupDate" data-conn="${c.id}" value="${c.nextFollowUp||todayStr()}">
+      </div>
+      <button class="btn btn-brass btn-sm saveConnFollowupBtn" data-conn="${c.id}">Save Follow-up</button>
+      <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}" style="margin-left:6px;">Delete</button>
+    </div>
+  </div>`;
+}
+function renderConnectionResults(search){
+  let list = [...CONNECTIONS];
+  if(search){
+    const s = search.toLowerCase();
+    list = list.filter(c=> c.name.toLowerCase().includes(s) || (c.phone||'').includes(s));
+  }
+  list.sort((a,b)=>{
+    const da = a.nextFollowUp || '9999-99-99';
+    const db_ = b.nextFollowUp || '9999-99-99';
+    if(da!==db_) return da<db_ ? -1 : 1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : 'No connections saved yet — add your first one above.'}</div>`;
+  return list.map(connectionCard).join('');
+}
+function bindConnectionCardHandlers(){
+  document.querySelectorAll('.connNoFuture').forEach(chk=>{
+    const id = chk.dataset.conn;
+    const wrap = document.querySelector(`.connDateWrap-${id}`);
+    chk.addEventListener('change', ()=>{ if(wrap) wrap.style.display = chk.checked ? 'none' : 'block'; });
+  });
+  document.querySelectorAll('.saveConnFollowupBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.conn;
+      const c = CONNECTIONS.find(x=>x.id===id);
+      if(!c) return;
+      const remarks = document.querySelector(`.connFollowupRemarks[data-conn="${id}"]`).value.trim();
+      const noFuture = document.querySelector(`.connNoFuture[data-conn="${id}"]`).checked;
+      const nextDate = document.querySelector(`.connFollowupDate[data-conn="${id}"]`).value;
+      if(!remarks){ toast('Add call remarks first'); return; }
+      if(!noFuture && !nextDate){ toast('Choose a follow-up date, or tick "No future follow-up needed"'); return; }
+      c.nextFollowUp = noFuture ? null : nextDate;
+      if(!c.log) c.log = [];
+      c.log.push({timestamp:new Date().toISOString(), remarks, nextFollowUp:c.nextFollowUp});
+      await saveConnections(CONNECTIONS);
+      toast('Follow-up saved');
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.deleteConnBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(`Delete connection "${btn.dataset.connName}"? This cannot be undone.`)) return;
+      CONNECTIONS = CONNECTIONS.filter(c=>c.id!==btn.dataset.conn);
+      await saveConnections(CONNECTIONS);
+      toast('Connection deleted');
+      renderApp();
+    });
+  });
 }
 
 /* ---------------- Head: Manage Logins ---------------- */
@@ -1998,6 +2153,35 @@ function bindDynamicHandlers(){
     });
   });
   bindDeleteLeadCardButtons();
+
+  const saveConnBtn = document.getElementById('saveConnBtn');
+  if(saveConnBtn){
+    saveConnBtn.addEventListener('click', async ()=>{
+      const name = document.getElementById('connName').value.trim();
+      const phone = document.getElementById('connPhone').value.trim();
+      const occupation = document.getElementById('connWork').value.trim();
+      const remarks = document.getElementById('connRemarks').value.trim();
+      const nextDate = document.getElementById('connNextDate').value;
+      if(!name || !phone){ toast('Name and phone are required'); return; }
+      CONNECTIONS.push({
+        id: uid(), name, phone, occupation, remarks,
+        createdAt: new Date().toISOString(), createdBy: SESSION.name,
+        nextFollowUp: nextDate || null, log: []
+      });
+      await saveConnections(CONNECTIONS);
+      toast('Connection saved');
+      renderApp();
+    });
+  }
+
+  const connSearchBox = document.getElementById('connSearchBox');
+  if(connSearchBox){
+    connSearchBox.addEventListener('input', ()=>{
+      document.getElementById('connResults').innerHTML = renderConnectionResults(connSearchBox.value);
+      bindConnectionCardHandlers();
+    });
+  }
+  bindConnectionCardHandlers();
 
   document.querySelectorAll('.crossSellReferBtn').forEach(btn=>{
     btn.addEventListener('click', ()=>{

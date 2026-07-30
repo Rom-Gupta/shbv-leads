@@ -160,6 +160,7 @@
   .badge-design_3d{background:#EDE7F6;color:#5E4B8C;}
   .badge-align_meeting{background:var(--warn-bg);color:var(--warn);}
   .badge-meeting_quotation{background:#FBEFE0;color:var(--brass);}
+  .badge-pipeline-pending{background:var(--bad-bg);color:var(--bad);opacity:.85;}
   .badge-new{background:var(--bad);color:#fff;}
 
   .section-title{font-size:12.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--brass);font-weight:700;margin:14px 0 6px;}
@@ -463,10 +464,20 @@ const KITCHEN_PIPELINE_LABELS = {
   align_meeting:'Align Meeting',
   meeting_quotation:'Meeting & Quotation Given'
 };
+const KITCHEN_PIPELINE_ORDER = ['site_visit_marking','design_3d','align_meeting','meeting_quotation'];
 function statusLabelFor(a){ return STATUS_LABELS[a.status] || a.status; }
 function pipelineLabelFor(a){ return a.pipelineStage ? KITCHEN_PIPELINE_LABELS[a.pipelineStage] : ''; }
 function pipelineBadgeHtml(a){
   return (a.team==='kitchen' && a.pipelineStage) ? `<span class="badge badge-${a.pipelineStage}">${pipelineLabelFor(a)}</span>` : '';
+}
+// Once one pipeline stage has been logged, show whatever hasn't happened yet in red,
+// so it's obvious at a glance what's still pending in the sequence.
+function pipelineRemainingHtml(a){
+  if(a.team!=='kitchen' || !a.pipelineStage) return '';
+  const idx = KITCHEN_PIPELINE_ORDER.indexOf(a.pipelineStage);
+  if(idx===-1) return '';
+  return KITCHEN_PIPELINE_ORDER.slice(idx+1)
+    .map(k=>`<span class="badge badge-pipeline-pending">${KITCHEN_PIPELINE_LABELS[k]}</span>`).join('');
 }
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
@@ -1063,7 +1074,7 @@ function leadCardSales(lead, a){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
-        ${pipelineBadgeHtml(a)}
+        ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
       </div>
     </div>
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
@@ -2147,7 +2158,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
             <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
-            ${pipelineBadgeHtml(a)}
+            ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
           </div>
         </div>
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>

@@ -665,7 +665,8 @@ function tabsFor(role){
     {id:'analytics', label:'Analytics'},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}]},
-    {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount()},
+    {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
+      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections', badge:()=>connectionsDueTodayCount()}]},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
@@ -736,7 +737,9 @@ async function renderApp(){
     else if(ACTIVE_TAB==='leads'){
       area.innerHTML = ACTIVE_SUBTAB==='crosssell' ? viewCrossSell() : viewAllLeads(true);
     }
-    else if(ACTIVE_TAB==='connections') area.innerHTML = viewConnections();
+    else if(ACTIVE_TAB==='connections'){
+      area.innerHTML = ACTIVE_SUBTAB==='view' ? viewConnectionsList() : viewConnectionsAdd();
+    }
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='reports'){
       if(ACTIVE_SUBTAB==='weekly') area.innerHTML = viewWeeklyReport();
@@ -1180,7 +1183,7 @@ function renderAnalyticsCharts(){
 function connectionsDueTodayCount(){
   return CONNECTIONS.filter(c=> c.nextFollowUp && isDueToday(c.nextFollowUp)).length;
 }
-function viewConnections(){
+function viewConnectionsAdd(){
   return `
   <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
     🔒 Private to you — no other role or staff login can see this, ever.
@@ -1199,7 +1202,14 @@ function viewConnections(){
     <input type="date" id="connNextDate">
     <button class="btn btn-primary btn-full" id="saveConnBtn">Save Connection</button>
   </div>
-  <div class="section-title">Your Connections</div>
+  `;
+}
+function viewConnectionsList(){
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Private to you — no other role or staff login can see this, ever.
+  </div>
+  <div class="section-title" style="margin-top:0;">Your Connections</div>
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
   <div id="connResults">${renderConnectionResults('')}</div>
   `;
@@ -2171,6 +2181,7 @@ function bindDynamicHandlers(){
       });
       await saveConnections(CONNECTIONS);
       toast('Connection saved');
+      ACTIVE_SUBTAB = 'view';
       renderApp();
     });
   }

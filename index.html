@@ -664,7 +664,7 @@ function tabsFor(role){
     {id:'overview', label:'Overview'},
     {id:'analytics', label:'Analytics'},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
-      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell'}]},
+      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}]},
     {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount()},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Reports',
@@ -703,9 +703,10 @@ function renderTabs(){
   const activeDef = tabs.find(t=>t.id===ACTIVE_TAB);
   if(activeDef && activeDef.sub){
     subBar.classList.remove('hidden');
-    subBar.innerHTML = activeDef.sub.map(s=>
-      `<div class="tab sub-tab ${ACTIVE_SUBTAB===s.id?'active':''}" data-subtab="${s.id}">${s.label}</div>`
-    ).join('');
+    subBar.innerHTML = activeDef.sub.map(s=>{
+      const b = s.badge ? s.badge() : 0;
+      return `<div class="tab sub-tab ${ACTIVE_SUBTAB===s.id?'active':''}" data-subtab="${s.id}">${s.label}${b>0?`<span class="badge">${b}</span>`:''}</div>`;
+    }).join('');
     [...subBar.children].forEach(c=>c.addEventListener('click', ()=>{
       ACTIVE_SUBTAB = c.dataset.subtab;
       renderApp();

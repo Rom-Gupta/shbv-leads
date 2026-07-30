@@ -1231,9 +1231,9 @@ function viewConnectionsList(){
     🔒 Private to you — no other role or staff login can see this, ever.
   </div>
   <div class="section-title" style="margin-top:0;">Your Connections</div>
-  <div class="lead-meta" style="margin-bottom:10px;">Connections with a follow-up already scheduled live in the Follow-up tab instead — this list is everyone else.</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Everyone you've saved. Anyone with a follow-up already scheduled also shows up in the Follow-up tab.</div>
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
-  <div id="connResults">${renderConnectionResults('', 'noFollowup')}</div>
+  <div id="connResults">${renderConnectionResults('', undefined, true)}</div>
   `;
 }
 function viewConnectionsFollowup(){
@@ -1243,10 +1243,23 @@ function viewConnectionsFollowup(){
   </div>
   <div class="section-title" style="margin-top:0;">Follow-ups Scheduled</div>
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
-  <div id="connResults">${renderConnectionResults('', 'hasFollowup')}</div>
+  <div id="connResults">${renderConnectionResults('', 'hasFollowup', false)}</div>
   `;
 }
-function connectionCard(c){
+function connectionCard(c, compact){
+  const followupForm = `
+    <div class="section-title" style="margin:0 0 6px;">Log a Follow-up</div>
+    <textarea class="connFollowupRemarks" data-conn="${c.id}" placeholder="What did they say on this call?"></textarea>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
+      <input type="checkbox" class="connNoFuture" data-conn="${c.id}" style="width:auto;margin:0;">
+      No future follow-up needed
+    </label>
+    <div class="connDateWrap-${c.id}">
+      <label>Next call date</label>
+      <input type="date" class="connFollowupDate" data-conn="${c.id}" value="${c.nextFollowUp||todayStr()}">
+    </div>
+    <button class="btn btn-brass btn-sm saveConnFollowupBtn" data-conn="${c.id}">Save Follow-up</button>
+  `;
   return `
   <div class="card">
     <div class="card-row">
@@ -1263,28 +1276,27 @@ function connectionCard(c){
         <div class="meta">${fmtDateTime(l.timestamp)}</div>
         ${esc(l.remarks)} ${l.nextFollowUp?`<div class="meta">Next call: ${fmtDate(l.nextFollowUp)}</div>`:''}
       </div>`).join('')}
-    <div class="assign-block" style="margin-top:10px;">
-      <div class="section-title" style="margin:0 0 6px;">Log a Follow-up</div>
-      <textarea class="connFollowupRemarks" data-conn="${c.id}" placeholder="What did they say on this call?"></textarea>
-      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
-        <input type="checkbox" class="connNoFuture" data-conn="${c.id}" style="width:auto;margin:0;">
-        No future follow-up needed
-      </label>
-      <div class="connDateWrap-${c.id}">
-        <label>Next call date</label>
-        <input type="date" class="connFollowupDate" data-conn="${c.id}" value="${c.nextFollowUp||todayStr()}">
+    ${compact ? `
+      <div class="row-btns" style="margin-top:8px;">
+        <button class="btn btn-brass btn-sm toggleConnFollowupBtn" data-conn="${c.id}">Log Follow-up</button>
+        <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}">Delete</button>
       </div>
-      <button class="btn btn-brass btn-sm saveConnFollowupBtn" data-conn="${c.id}">Save Follow-up</button>
-      <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}" style="margin-left:6px;">Delete</button>
-    </div>
+      <div class="assign-block hidden" id="connFollowupForm-${c.id}" style="margin-top:10px;">
+        ${followupForm}
+      </div>
+    ` : `
+      <div class="assign-block" style="margin-top:10px;">
+        ${followupForm}
+        <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}" style="margin-left:6px;">Delete</button>
+      </div>
+    `}
   </div>`;
 }
-// filterMode: 'noFollowup' (default view, excludes anything already scheduled),
-// 'hasFollowup' (the dedicated Follow-up tab), or omitted for everything.
-function renderConnectionResults(search, filterMode){
+// filterMode: 'hasFollowup' (Follow-up tab only) or omitted for everyone (All Connections).
+// compact: true renders the card without the follow-up form expanded (All Connections).
+function renderConnectionResults(search, filterMode, compact){
   let list = [...CONNECTIONS];
-  if(filterMode==='noFollowup') list = list.filter(c=>!c.nextFollowUp);
-  else if(filterMode==='hasFollowup') list = list.filter(c=>!!c.nextFollowUp);
+  if(filterMode==='hasFollowup') list = list.filter(c=>!!c.nextFollowUp);
   if(search){
     const s = search.toLowerCase();
     list = list.filter(c=> c.name.toLowerCase().includes(s) || (c.phone||'').includes(s));
@@ -1295,10 +1307,16 @@ function renderConnectionResults(search, filterMode){
     if(da!==db_) return da<db_ ? -1 : 1;
     return b.createdAt.localeCompare(a.createdAt);
   });
-  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode==='hasFollowup' ? 'No follow-ups scheduled right now.' : 'Nothing here — either no connections yet, or all of them have a follow-up scheduled.')}</div>`;
-  return list.map(connectionCard).join('');
+  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode==='hasFollowup' ? 'No follow-ups scheduled right now.' : 'No connections saved yet — add your first one above.')}</div>`;
+  return list.map(c=>connectionCard(c, compact)).join('');
 }
 function bindConnectionCardHandlers(){
+  document.querySelectorAll('.toggleConnFollowupBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const form = document.getElementById(`connFollowupForm-${btn.dataset.conn}`);
+      if(form) form.classList.toggle('hidden');
+    });
+  });
   document.querySelectorAll('.connNoFuture').forEach(chk=>{
     const id = chk.dataset.conn;
     const wrap = document.querySelector(`.connDateWrap-${id}`);
@@ -2224,9 +2242,10 @@ function bindDynamicHandlers(){
 
   const connSearchBox = document.getElementById('connSearchBox');
   if(connSearchBox){
-    const connFilterMode = ACTIVE_SUBTAB==='followup' ? 'hasFollowup' : (ACTIVE_SUBTAB==='view' ? 'noFollowup' : undefined);
+    const connFilterMode = ACTIVE_SUBTAB==='followup' ? 'hasFollowup' : undefined;
+    const connCompact = ACTIVE_SUBTAB!=='followup';
     connSearchBox.addEventListener('input', ()=>{
-      document.getElementById('connResults').innerHTML = renderConnectionResults(connSearchBox.value, connFilterMode);
+      document.getElementById('connResults').innerHTML = renderConnectionResults(connSearchBox.value, connFilterMode, connCompact);
       bindConnectionCardHandlers();
     });
   }

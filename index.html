@@ -395,10 +395,37 @@ function subscribeToLiveUpdates(){
 }
 // Backfills any fields missing on older saved leads/assignments/logs so future
 // feature additions never break on data saved before that feature existed.
+// If the same team+salesperson somehow got referred twice on one lead (e.g. an old
+// bug, a double-click before duplicate-prevention existed), merge them into one
+// instead of showing two identical cards. Keeps the earliest referral, combines all
+// call history from both, and keeps whichever has progressed further.
+function dedupeAssignments(l){
+  const seen = new Map();
+  const deduped = [];
+  (l.assignments||[]).slice().sort((a,b)=>a.assignedAt.localeCompare(b.assignedAt)).forEach(a=>{
+    const key = a.team+'|'+a.salesperson;
+    if(seen.has(key)){
+      const existing = seen.get(key);
+      existing.log = [...(existing.log||[]), ...(a.log||[])].sort((x,y)=>x.timestamp.localeCompare(y.timestamp));
+      const RESOLVED_ORDER = ['pending','visited','site_visit_marking','design_3d','align_meeting','meeting_quotation','sale','lost'];
+      if(RESOLVED_ORDER.indexOf(a.status) > RESOLVED_ORDER.indexOf(existing.status)) existing.status = a.status;
+      if(a.pipelineStage && !existing.pipelineStage) existing.pipelineStage = a.pipelineStage;
+      if(a.product && !existing.product) existing.product = a.product;
+      if(a.meetingDate && !existing.meetingDate) existing.meetingDate = a.meetingDate;
+      if(a.nextFollowUp && !existing.nextFollowUp) existing.nextFollowUp = a.nextFollowUp;
+      if(a.acknowledged===false) existing.acknowledged = false;
+    } else {
+      seen.set(key, a);
+      deduped.push(a);
+    }
+  });
+  l.assignments = deduped;
+}
 function normalizeLead(l){
   if(!l.receptionLog) l.receptionLog = [];
   if(!l.assignments) l.assignments = [];
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
+  dedupeAssignments(l);
   l.receptionLog.forEach(log=>{
     if(log.nextFollowUp===undefined) log.nextFollowUp = null;
   });

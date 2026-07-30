@@ -121,6 +121,11 @@
   .tab .badge{
     background:var(--bad);color:#fff;font-size:10.5px;border-radius:10px;padding:1px 6px;margin-left:6px;
   }
+  .sub-tab{
+    padding:6px 12px;font-size:12px;background:transparent;border-color:transparent;color:var(--ink-soft);
+  }
+  .sub-tab:hover{background:#fff;border-color:var(--line);}
+  .sub-tab.active{background:var(--brass);color:#fff;border-color:var(--brass);box-shadow:0 2px 6px rgba(169,131,74,.2);}
 
   /* Cards */
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(21,37,36,.03), 0 2px 8px rgba(21,37,36,.04);transition:box-shadow .15s ease;}
@@ -235,6 +240,7 @@
   </div>
 
   <div class="tabs" id="tabBar"></div>
+  <div class="tabs hidden" id="subTabBar" style="margin-top:-6px;"></div>
   <div id="viewArea"></div>
 </div>
 
@@ -365,6 +371,7 @@ let STAFF = {tiles:[],sanitary:[],kitchen:[],windows:[],reception:[]};
 let SESSION = null; // {role: 'reception'|'head'|'tiles'|..., name: 'X'}
 let STORAGE_ERROR = false; // true if saving/loading data is currently failing
 let ACTIVE_TAB = 'inbox';
+let ACTIVE_SUBTAB = null;
 
 const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
 const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
@@ -484,6 +491,7 @@ function renderStaffAuthArea(){
 function loginAs(role, name){
   SESSION = {role, name};
   ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : 'myleads');
+  ACTIVE_SUBTAB = null;
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
   const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':TEAM_LABELS[role]+' Sales');
@@ -613,13 +621,12 @@ function tabsFor(role){
   if(role==='head') return [
     {id:'overview', label:'Overview'},
     {id:'analytics', label:'Analytics'},
-    {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
+    {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
+      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell'}]},
     {id:'upcoming', label:'Upcoming Follow-ups'},
-    {id:'reports', label:'Daily Reports'},
-    {id:'weekly', label:'Weekly Report'},
-    {id:'monthly', label:'Monthly Report'},
+    {id:'reports', label:'Reports',
+      sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'add', label:'+ New Lead'},
-    {id:'all', label:'All Leads'},
     {id:'logins', label:'Manage Logins'},
   ];
   return [
@@ -639,7 +646,31 @@ function renderTabs(){
     const b = t.badge ? t.badge() : 0;
     return `<div class="tab ${ACTIVE_TAB===t.id?'active':''}" data-tab="${t.id}">${t.label}${b>0?`<span class="badge">${b}</span>`:''}</div>`;
   }).join('');
-  [...bar.children].forEach(c=>c.addEventListener('click', ()=>{ ACTIVE_TAB=c.dataset.tab; renderApp(); }));
+  [...bar.children].forEach(c=>c.addEventListener('click', ()=>{
+    const tabId = c.dataset.tab;
+    const tabDef = tabs.find(t=>t.id===tabId);
+    ACTIVE_TAB = tabId;
+    if(tabDef && tabDef.sub && (!ACTIVE_SUBTAB || !tabDef.sub.some(s=>s.id===ACTIVE_SUBTAB))){
+      ACTIVE_SUBTAB = tabDef.sub[0].id;
+    }
+    renderApp();
+  }));
+
+  const subBar = document.getElementById('subTabBar');
+  const activeDef = tabs.find(t=>t.id===ACTIVE_TAB);
+  if(activeDef && activeDef.sub){
+    subBar.classList.remove('hidden');
+    subBar.innerHTML = activeDef.sub.map(s=>
+      `<div class="tab sub-tab ${ACTIVE_SUBTAB===s.id?'active':''}" data-subtab="${s.id}">${s.label}</div>`
+    ).join('');
+    [...subBar.children].forEach(c=>c.addEventListener('click', ()=>{
+      ACTIVE_SUBTAB = c.dataset.subtab;
+      renderApp();
+    }));
+  } else {
+    subBar.classList.add('hidden');
+    subBar.innerHTML = '';
+  }
 }
 
 /* ---------------- Main render dispatch ---------------- */
@@ -658,14 +689,18 @@ async function renderApp(){
   } else if(SESSION.role==='head'){
     if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
     else if(ACTIVE_TAB==='analytics'){ area.innerHTML = viewAnalytics(); renderAnalyticsCharts(); }
-    else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
+    else if(ACTIVE_TAB==='leads'){
+      area.innerHTML = ACTIVE_SUBTAB==='crosssell' ? viewCrossSell() : viewAllLeads(true);
+    }
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
-    else if(ACTIVE_TAB==='reports') area.innerHTML = viewReports();
-    else if(ACTIVE_TAB==='weekly') area.innerHTML = viewWeeklyReport();
-    else if(ACTIVE_TAB==='monthly') area.innerHTML = viewMonthlyReport();
+    else if(ACTIVE_TAB==='reports'){
+      if(ACTIVE_SUBTAB==='weekly') area.innerHTML = viewWeeklyReport();
+      else if(ACTIVE_SUBTAB==='monthly') area.innerHTML = viewMonthlyReport();
+      else area.innerHTML = viewReports();
+    }
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
-    else area.innerHTML = viewAllLeads(true);
+    else area.innerHTML = viewHeadOverview();
   } else {
     if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');

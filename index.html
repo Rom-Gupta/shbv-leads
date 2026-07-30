@@ -87,16 +87,10 @@
   .role-btn{
     border:1px solid var(--line);background:var(--card);border-radius:12px;padding:16px 10px;
     cursor:pointer;text-align:center;font-size:13.5px;font-weight:600;color:var(--teal);
-    transition:.18s ease;display:flex;flex-direction:column;align-items:center;gap:6px;
-  }
-  .role-btn .role-icon{
-    width:34px;height:34px;border-radius:10px;background:rgba(169,131,74,.14);display:flex;align-items:center;
-    justify-content:center;font-size:17px;transition:.18s ease;
+    transition:.18s ease;display:flex;align-items:center;justify-content:center;
   }
   .role-btn:hover{border-color:var(--brass);background:#FFFBF2;box-shadow:0 4px 12px rgba(169,131,74,.18);transform:translateY(-2px);}
-  .role-btn:hover .role-icon{background:var(--brass-light);}
   .role-btn.selected{background:var(--teal);color:#fff;border-color:var(--teal);box-shadow:0 4px 14px rgba(18,59,58,.3);transform:translateY(-2px);}
-  .role-btn.selected .role-icon{background:rgba(255,255,255,.18);}
   select,input[type=text],input[type=tel],input[type=date],input[type=password],textarea{
     width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
     font-size:14.5px;font-family:inherit;background:#fff;color:var(--ink);margin-bottom:10px;
@@ -228,12 +222,12 @@
   <div class="login-card">
     <h3>Who's logging in?</h3>
     <div class="role-grid" id="roleGrid">
-      <div class="role-btn" data-role="reception"><span class="role-icon">🛎️</span>Reception</div>
-      <div class="role-btn" data-role="head"><span class="role-icon">👑</span>Head</div>
-      <div class="role-btn" data-role="tiles"><span class="role-icon">🧱</span>Sales – Tiles</div>
-      <div class="role-btn" data-role="sanitary"><span class="role-icon">🚿</span>Sales – Sanitary</div>
-      <div class="role-btn" data-role="kitchen"><span class="role-icon">🍳</span>Sales – Kitchen/Wardrobe</div>
-      <div class="role-btn" data-role="windows"><span class="role-icon">🪟</span>Sales – Windows</div>
+      <div class="role-btn" data-role="reception">Reception</div>
+      <div class="role-btn" data-role="head">Head</div>
+      <div class="role-btn" data-role="tiles">Sales – Tiles</div>
+      <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
+      <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
+      <div class="role-btn" data-role="windows">Sales – Windows</div>
     </div>
   </div>
 

@@ -156,6 +156,10 @@
   .badge-followup{background:var(--warn-bg);color:var(--warn);}
   .badge-lost{background:var(--bad-bg);color:var(--bad);}
   .badge-no-followup{background:#EEE9DC;color:#7A6A3F;}
+  .badge-site_visit_marking{background:var(--info-bg);color:var(--info);}
+  .badge-design_3d{background:#EDE7F6;color:#5E4B8C;}
+  .badge-align_meeting{background:var(--warn-bg);color:var(--warn);}
+  .badge-meeting_quotation{background:#FBEFE0;color:var(--brass);}
   .badge-new{background:var(--bad);color:#fff;}
 
   .section-title{font-size:12.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--brass);font-weight:700;margin:14px 0 6px;}
@@ -404,6 +408,7 @@ function normalizeLead(l){
     if(a.product===undefined) a.product = '';
     if(a.nextFollowUp===undefined) a.nextFollowUp = null;
     if(a.pendingConfirmation===undefined) a.pendingConfirmation = false;
+    if(a.meetingDate===undefined) a.meetingDate = null;
     a.log.forEach(log=>{
       if(log.nextFollowUp===undefined) log.nextFollowUp = null;
     });
@@ -422,6 +427,19 @@ let ACTIVE_SUBTAB = null;
 const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
 const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
 const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
+// Kitchen/Wardrobe gets its own, more granular pipeline — every other team keeps the simple one.
+const KITCHEN_STATUS_LABELS = {
+  pending:'Pending Visit',
+  visited:'Visited',
+  site_visit_marking:'Site Visit & Marking Done',
+  design_3d:'3-D Done',
+  align_meeting:'Align Meeting',
+  meeting_quotation:'Meeting & Quotation Given',
+  sale:'Sale Done',
+  lost:'Lost'
+};
+function statusLabelsFor(team){ return team==='kitchen' ? KITCHEN_STATUS_LABELS : STATUS_LABELS; }
+function statusLabelFor(a){ return statusLabelsFor(a.team)[a.status] || a.status; }
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -834,7 +852,7 @@ function viewUpcomingFollowups(){
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
 function crossSellLeadCard(l){
   const soldFrom = (l.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
-  const touchedFrom = (l.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
+  const touchedFrom = (l.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}`).join(', ');
   const pending = crossSellPendingDepartments(l);
   return `
     <div class="card">
@@ -915,7 +933,7 @@ function leadCardReception(l){
         <div class="lead-name">${esc(l.name)}</div>
         <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
-        ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join('')}</div>` : ''}
+        ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
       </div>
       ${statusBadge}
@@ -1006,7 +1024,7 @@ function renderMyLeadsSearchResults(search){
 
 function leadCardSales(lead, a){
   const badgeClass = 'badge-'+a.status;
-  const canFollowUp = a.status==='pending' || a.status==='visited';
+  const canFollowUp = a.status!=='sale' && a.status!=='lost';
   return `
   <div class="card">
     <div class="card-row">
@@ -1015,7 +1033,7 @@ function leadCardSales(lead, a){
         <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
-      <span class="badge ${badgeClass}">${STATUS_LABELS[a.status]}</span>
+      <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
     </div>
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${isAssignmentStale(a) ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">⏳ No activity in ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)} days — give this one a visit or call.</div>` : ''}
@@ -1791,7 +1809,7 @@ function bindRangeLeadsFilters(prefix, range){
 }
 
 function leadCardHead(l){
-  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join(' ');
+  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join(' ');
   return `
   <div class="card">
     <div class="card-row">
@@ -1818,7 +1836,7 @@ function leadsToCSV(){
     } else {
       l.assignments.forEach(a=>{
         const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
-        rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,STATUS_LABELS[a.status],a.product||'',lastLog?lastLog.remarks:'',a.nextFollowUp||'']);
+        rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,statusLabelFor(a),a.product||'',lastLog?lastLog.remarks:'',a.nextFollowUp||'']);
       });
     }
   });
@@ -1935,7 +1953,7 @@ function viewReports(){
                 ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]}: needs follow-up</span>`).join('')}
               </div>
               ${covered.length ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-                ${covered.map(a=>`<span class="team-tag" style="background:#9aa39c;">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}${a.nextFollowUp?' (has plan)':''}</span>`).join('')}
+                ${covered.map(a=>`<span class="team-tag" style="background:#9aa39c;">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${a.nextFollowUp?' (has plan)':''}</span>`).join('')}
               </div>` : ''}
             `}
           </div>
@@ -1996,7 +2014,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
     } else {
       html += `<div class="section-title">🔁 Repeat Customer — Other Records</div>`;
       siblingLeads.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).forEach(l2=>{
-        const chips = (l2.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}</span>`).join(' ');
+        const chips = (l2.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join(' ');
         html += `<div class="card" style="padding:10px 14px;margin-bottom:8px;">
           <div class="card-row">
             <div>
@@ -2019,7 +2037,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
     const pendingDepts = crossSellPendingDepartments(lead);
     if(pendingDepts.length){
       const soldFrom = (lead.assignments||[]).filter(a=>a.status==='sale').map(a=>TEAM_LABELS[a.team]).join(', ');
-      const touchedFrom = (lead.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${STATUS_LABELS[a.status]}`).join(', ');
+      const touchedFrom = (lead.assignments||[]).map(a=>`${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}`).join(', ');
       html += `
       <div class="assign-block" style="border-color:var(--brass);">
         <div class="section-title" style="margin-top:0;">💡 Cross-sell Opportunity</div>
@@ -2093,12 +2111,13 @@ function renderLeadDetail(lead, focusAssignId, mode){
   } else {
     visibleAssignments.forEach(a=>{
       const mine = isSales && a.team===SESSION.role && a.salesperson===SESSION.name;
+      const teamStatusLabels = statusLabelsFor(a.team);
       html += `<div class="assign-block" ${focusAssignId===a.id?'style="border-color:var(--brass);"':''}>
         <div class="assign-head">
           <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
-          <span class="badge badge-${a.status}">${STATUS_LABELS[a.status]}</span>
+          <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
         </div>
-        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''}</div>
+        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
         ${(a.log||[]).slice().reverse().map(log=>`
           <div class="log-entry">
             <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)}</div>
@@ -2109,11 +2128,12 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <div class="section-title" style="margin:0 0 6px;">Update Visit Outcome</div>
             <label>Status</label>
             <select class="assignStatusSel" data-assign="${a.id}">
-              <option value="pending" ${a.status==='pending'?'selected':''}>Pending Visit</option>
-              <option value="visited" ${a.status==='visited'?'selected':''}>Visited – No decision yet</option>
-              <option value="sale" ${a.status==='sale'?'selected':''}>Sale Done</option>
-              <option value="lost" ${a.status==='lost'?'selected':''}>Lost / Bought elsewhere</option>
+              ${Object.entries(teamStatusLabels).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
             </select>
+            <div class="assignMeetingDateWrap-${a.id}" ${a.status==='align_meeting'?'':'style="display:none;"'}>
+              <label>Meeting date</label>
+              <input type="date" class="assignMeetingDateInput" data-assign="${a.id}" value="${a.meetingDate||todayStr()}">
+            </div>
             <label>Product (if decided)</label>
             <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
             <label>Remarks</label>
@@ -2121,7 +2141,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <button class="btn btn-primary btn-sm saveAssignBtn" data-assign="${a.id}">Save Outcome</button>
             <button class="btn btn-ghost btn-sm referFromAssignBtn" data-assign="${a.id}" data-lead="${lead.id}" style="margin-left:6px;">Refer to another team</button>
           </div>
-          ${(a.status==='pending' || a.status==='visited') ? `
+          ${(a.status!=='sale' && a.status!=='lost') ? `
           <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
             <div class="section-title" style="margin:0 0 6px;">Log a Follow-up Call</div>
             <label>Call remarks</label>
@@ -2412,6 +2432,13 @@ function bindModalHandlers(lead){
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
 
+  document.querySelectorAll('.assignStatusSel').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const wrap = document.querySelector(`.assignMeetingDateWrap-${sel.dataset.assign}`);
+      if(wrap) wrap.style.display = sel.value==='align_meeting' ? 'block' : 'none';
+    });
+  });
+
   document.querySelectorAll('.crossSellReferBtn').forEach(btn=>{
     btn.addEventListener('click', ()=> openReferForm(btn.dataset.leadId, null, btn.dataset.team));
   });
@@ -2480,6 +2507,10 @@ function bindModalHandlers(lead){
       a.status = status;
       a.product = product;
       a.acknowledged = true;
+      if(status==='align_meeting'){
+        const meetingDateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${aid}"]`);
+        a.meetingDate = meetingDateEl ? meetingDateEl.value : null;
+      }
       // Resolving the deal (sale/lost) clears any pending follow-up plan.
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
       // updating the outcome should never silently cancel or change a scheduled follow-up.

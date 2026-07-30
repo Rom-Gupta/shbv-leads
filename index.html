@@ -2118,6 +2118,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
         </div>
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
+        ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
         ${(a.log||[]).slice().reverse().map(log=>`
           <div class="log-entry">
             <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)}</div>
@@ -2210,6 +2211,13 @@ function openReferForm(leadId, fromAssignId, presetTeam){
     const team = teamSel.value;
     const person = personSel.value;
     if(!person){ toast('Add a salesperson name first'); return; }
+    // Don't create a second active assignment to a team that's already handling this
+    // lead — only allow referring again if their previous attempt there was Lost.
+    const existing = (lead.assignments||[]).find(a=>a.team===team);
+    if(existing && existing.status!=='lost'){
+      toast(`Already referred to ${TEAM_LABELS[team]} — ${existing.salesperson} (${statusLabelFor(existing)}). Not creating a duplicate.`);
+      return;
+    }
     const note = document.getElementById('referNote').value.trim();
     const assignerName = SESSION.role==='head' ? `${SESSION.name} (Head)` : (SESSION.role==='reception' ? SESSION.name : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`);
     const newAssign = {
@@ -2464,6 +2472,17 @@ function bindModalHandlers(lead){
       renderApp();
     });
   }
+
+  document.querySelectorAll('.removeAssignBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(`Remove the ${btn.dataset.teamLabel} referral to ${btn.dataset.person}? This cannot be undone.`)) return;
+      lead.assignments = lead.assignments.filter(a=>a.id!==btn.dataset.assignId);
+      await saveLeads(LEADS);
+      toast('Referral removed');
+      closeModal();
+      renderApp();
+    });
+  });
 
   document.querySelectorAll('.referFromAssignBtn').forEach(btn=>{
     btn.addEventListener('click', ()=> openReferForm(btn.dataset.lead, btn.dataset.assign));

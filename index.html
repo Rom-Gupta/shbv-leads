@@ -409,6 +409,7 @@ function normalizeLead(l){
     if(a.nextFollowUp===undefined) a.nextFollowUp = null;
     if(a.pendingConfirmation===undefined) a.pendingConfirmation = false;
     if(a.meetingDate===undefined) a.meetingDate = null;
+    if(a.pipelineStage===undefined) a.pipelineStage = null;
     a.log.forEach(log=>{
       if(log.nextFollowUp===undefined) log.nextFollowUp = null;
     });
@@ -427,19 +428,19 @@ let ACTIVE_SUBTAB = null;
 const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
 const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
 const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
-// Kitchen/Wardrobe gets its own, more granular pipeline — every other team keeps the simple one.
-const KITCHEN_STATUS_LABELS = {
-  pending:'Pending Visit',
-  visited:'Visited',
+// Kitchen/Wardrobe gets an extra "Pipeline" field alongside the normal Status —
+// it doesn't replace Pending/Visited/Sale/Lost, it just adds more detail on top of it.
+const KITCHEN_PIPELINE_LABELS = {
   site_visit_marking:'Site Visit & Marking Done',
   design_3d:'3-D Done',
   align_meeting:'Align Meeting',
-  meeting_quotation:'Meeting & Quotation Given',
-  sale:'Sale Done',
-  lost:'Lost'
+  meeting_quotation:'Meeting & Quotation Given'
 };
-function statusLabelsFor(team){ return team==='kitchen' ? KITCHEN_STATUS_LABELS : STATUS_LABELS; }
-function statusLabelFor(a){ return statusLabelsFor(a.team)[a.status] || a.status; }
+function statusLabelFor(a){ return STATUS_LABELS[a.status] || a.status; }
+function pipelineLabelFor(a){ return a.pipelineStage ? KITCHEN_PIPELINE_LABELS[a.pipelineStage] : ''; }
+function pipelineBadgeHtml(a){
+  return (a.team==='kitchen' && a.pipelineStage) ? `<span class="badge badge-${a.pipelineStage}">${pipelineLabelFor(a)}</span>` : '';
+}
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -1033,7 +1034,10 @@ function leadCardSales(lead, a){
         <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
         <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
-      <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+        <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
+        ${pipelineBadgeHtml(a)}
+      </div>
     </div>
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${isAssignmentStale(a) ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">⏳ No activity in ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)} days — give this one a visit or call.</div>` : ''}
@@ -1809,7 +1813,7 @@ function bindRangeLeadsFilters(prefix, range){
 }
 
 function leadCardHead(l){
-  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join(' ');
+  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${pipelineLabelFor(a)?` (${pipelineLabelFor(a)})`:''}</span>`).join(' ');
   return `
   <div class="card">
     <div class="card-row">
@@ -2111,11 +2115,13 @@ function renderLeadDetail(lead, focusAssignId, mode){
   } else {
     visibleAssignments.forEach(a=>{
       const mine = isSales && a.team===SESSION.role && a.salesperson===SESSION.name;
-      const teamStatusLabels = statusLabelsFor(a.team);
       html += `<div class="assign-block" ${focusAssignId===a.id?'style="border-color:var(--brass);"':''}>
         <div class="assign-head">
           <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
-          <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+            <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
+            ${pipelineBadgeHtml(a)}
+          </div>
         </div>
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
@@ -2129,12 +2135,18 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <div class="section-title" style="margin:0 0 6px;">Update Visit Outcome</div>
             <label>Status</label>
             <select class="assignStatusSel" data-assign="${a.id}">
-              ${Object.entries(teamStatusLabels).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
+              ${Object.entries(STATUS_LABELS).filter(([k])=>['pending','visited','sale','lost'].includes(k)).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
             </select>
-            <div class="assignMeetingDateWrap-${a.id}" ${a.status==='align_meeting'?'':'style="display:none;"'}>
+            ${a.team==='kitchen' ? `
+            <label>Pipeline</label>
+            <select class="assignPipelineSel" data-assign="${a.id}">
+              <option value="">— none —</option>
+              ${Object.entries(KITCHEN_PIPELINE_LABELS).map(([k,v])=>`<option value="${k}" ${a.pipelineStage===k?'selected':''}>${v}</option>`).join('')}
+            </select>
+            <div class="assignMeetingDateWrap-${a.id}" ${a.pipelineStage==='align_meeting'?'':'style="display:none;"'}>
               <label>Meeting date</label>
               <input type="date" class="assignMeetingDateInput" data-assign="${a.id}" value="${a.meetingDate||todayStr()}">
-            </div>
+            </div>` : ''}
             <label>Product (if decided)</label>
             <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
             <label>Remarks</label>
@@ -2440,7 +2452,7 @@ function bindModalHandlers(lead){
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
 
-  document.querySelectorAll('.assignStatusSel').forEach(sel=>{
+  document.querySelectorAll('.assignPipelineSel').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`.assignMeetingDateWrap-${sel.dataset.assign}`);
       if(wrap) wrap.style.display = sel.value==='align_meeting' ? 'block' : 'none';
@@ -2526,9 +2538,13 @@ function bindModalHandlers(lead){
       a.status = status;
       a.product = product;
       a.acknowledged = true;
-      if(status==='align_meeting'){
-        const meetingDateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${aid}"]`);
-        a.meetingDate = meetingDateEl ? meetingDateEl.value : null;
+      const pipelineSelEl = document.querySelector(`.assignPipelineSel[data-assign="${aid}"]`);
+      if(pipelineSelEl){
+        a.pipelineStage = pipelineSelEl.value || null;
+        if(a.pipelineStage==='align_meeting'){
+          const meetingDateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${aid}"]`);
+          a.meetingDate = meetingDateEl ? meetingDateEl.value : null;
+        }
       }
       // Resolving the deal (sale/lost) clears any pending follow-up plan.
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —

@@ -664,13 +664,12 @@ function tabsFor(role){
     {id:'overview', label:'Overview'},
     {id:'analytics', label:'Analytics'},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
-      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}]},
+      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
       sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}]},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
-    {id:'add', label:'+ New Lead'},
     {id:'logins', label:'Manage Logins'},
   ];
   return [
@@ -735,7 +734,9 @@ async function renderApp(){
     if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
     else if(ACTIVE_TAB==='analytics'){ area.innerHTML = viewAnalytics(); renderAnalyticsCharts(); }
     else if(ACTIVE_TAB==='leads'){
-      area.innerHTML = ACTIVE_SUBTAB==='crosssell' ? viewCrossSell() : viewAllLeads(true);
+      if(ACTIVE_SUBTAB==='crosssell') area.innerHTML = viewCrossSell();
+      else if(ACTIVE_SUBTAB==='add') area.innerHTML = viewAddLead();
+      else area.innerHTML = viewAllLeads(true);
     }
     else if(ACTIVE_TAB==='connections'){
       if(ACTIVE_SUBTAB==='view') area.innerHTML = viewConnectionsList();
@@ -748,7 +749,6 @@ async function renderApp(){
       else if(ACTIVE_SUBTAB==='monthly') area.innerHTML = viewMonthlyReport();
       else area.innerHTML = viewReports();
     }
-    else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
     else area.innerHTML = viewHeadOverview();
   } else {
@@ -2341,7 +2341,8 @@ function bindDynamicHandlers(){
       LEADS.push(lead);
       await saveLeads(LEADS);
       toast('Lead saved');
-      ACTIVE_TAB = isSalesAdding ? 'myleads' : (SESSION.role==='head' ? 'all' : 'inbox');
+      ACTIVE_TAB = isSalesAdding ? 'myleads' : (SESSION.role==='head' ? 'leads' : 'inbox');
+      if(SESSION.role==='head') ACTIVE_SUBTAB = 'all';
       renderApp();
     });
   }

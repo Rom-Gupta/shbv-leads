@@ -435,7 +435,7 @@ function normalizeLead(l){
     if(a.acknowledged===undefined) a.acknowledged = true;
     if(a.product===undefined) a.product = '';
     if(a.nextFollowUp===undefined) a.nextFollowUp = null;
-    if(a.pendingConfirmation===undefined) a.pendingConfirmation = false;
+    if(a.pendingConfirmation===undefined) a.pendingConfirmation = false; // kept for backward-compat with old saved data, no longer used
     if(a.meetingDate===undefined) a.meetingDate = null;
     if(a.pipelineStage===undefined) a.pipelineStage = null;
     a.log.forEach(log=>{
@@ -1038,7 +1038,7 @@ function viewMyLeads(mode){
         if(mode==='due'){
           if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
         } else {
-          if((a.status!=='sale' && a.status!=='lost') || a.pendingConfirmation) assigns.push({lead:l, a});
+          if(a.status!=='sale' && a.status!=='lost') assigns.push({lead:l, a});
         }
       }
     });
@@ -1131,7 +1131,6 @@ function leadCardSales(lead, a){
     ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:6px;">Next call: <b>${fmtDate(a.nextFollowUp)}</b> ${isDueToday(a.nextFollowUp)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${a.pipelineStage==='align_meeting' && a.meetingDate ? `<div class="lead-meta" style="margin-top:6px;">Meeting: <b>${fmtDate(a.meetingDate)}</b> ${a.meetingDate<=todayStr()?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
     ${isAssignmentStale(a) ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">⏳ No activity in ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)} days — give this one a visit or call.</div>` : ''}
-    ${a.pendingConfirmation ? `<div class="lead-meta" style="margin-top:6px;color:var(--warn);">${canFollowUp ? 'Log a follow-up call or update this again' : 'Update this again'} to move it off your active list.</div>` : ''}
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="outcome">Update Outcome</button>
       ${canFollowUp ? `<button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">Log Follow-up</button>` : ''}
@@ -2640,11 +2639,6 @@ function bindModalHandlers(lead){
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
       // updating the outcome should never silently cancel or change a scheduled follow-up.
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
-      // Don't let a lead silently vanish from Active Leads the instant it's marked
-      // Sale/Lost. It stays visible until the salesperson does one more thing on it —
-      // either logs a follow-up call, or updates it again — which is what actually
-      // clears pendingConfirmation below.
-      a.pendingConfirmation = (status==='sale' || status==='lost') && !wasAlreadyResolved;
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is resolved (Sale Done or Lost): auto-schedule a
@@ -2693,7 +2687,6 @@ function bindModalHandlers(lead){
       // as it was) — this only ever updates the follow-up date, kept fully independent.
       a.nextFollowUp = noFuture ? null : nextDate;
       a.acknowledged = true;
-      a.pendingConfirmation = false; // logging a call is exactly the confirmation that clears it from limbo
       if(!a.log) a.log=[];
       a.log.push({
         timestamp:new Date().toISOString(), author:SESSION.name, remarks,

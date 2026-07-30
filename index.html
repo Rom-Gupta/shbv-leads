@@ -51,6 +51,7 @@
      so the logo reads as part of the page instead of a box sitting on cream. */
   #connectingScreen, #loginScreen{
     background:#21372B;
+    background-image: radial-gradient(circle at 50% -10%, rgba(201,166,107,.16), transparent 55%);
     min-height:100vh;
     width:100vw;
     margin-left:calc(50% - 50vw);
@@ -67,16 +68,35 @@
   }
   .brand h1{font-size:22px;letter-spacing:.01em;color:var(--brass-light);}
   .brand p{color:rgba(247,245,240,.75);font-size:13px;margin-top:2px;letter-spacing:.02em;}
-  .login-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:14px;box-shadow:0 4px 20px rgba(0,0,0,.25);}
-  .login-card h3{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin-bottom:12px;font-family:'Segoe UI',sans-serif;}
+  @keyframes cardRise{ from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
+  .login-card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:14px;
+    box-shadow:0 4px 20px rgba(0,0,0,.25);position:relative;overflow:hidden;
+    animation:cardRise .4s ease both;
+  }
+  .login-card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:4px;
+    background:linear-gradient(90deg, var(--teal), var(--brass-light), var(--teal));
+  }
+  .login-card h3{
+    font-size:12.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--brass);margin-bottom:14px;
+    font-family:'Segoe UI',sans-serif;font-weight:700;display:flex;align-items:center;gap:8px;
+  }
+  .login-card h3::after{content:'';flex:1;height:1px;background:var(--line);}
   .role-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .role-btn{
-    border:1px solid var(--line);background:var(--card);border-radius:10px;padding:14px 10px;
+    border:1px solid var(--line);background:var(--card);border-radius:12px;padding:16px 10px;
     cursor:pointer;text-align:center;font-size:13.5px;font-weight:600;color:var(--teal);
-    transition:.15s ease;
+    transition:.18s ease;display:flex;flex-direction:column;align-items:center;gap:6px;
   }
-  .role-btn:hover{border-color:var(--brass);background:#FFFBF2;box-shadow:0 2px 8px rgba(169,131,74,.15);}
-  .role-btn.selected{background:var(--teal);color:#fff;border-color:var(--teal);box-shadow:0 2px 10px rgba(18,59,58,.25);}
+  .role-btn .role-icon{
+    width:34px;height:34px;border-radius:10px;background:var(--paper);display:flex;align-items:center;
+    justify-content:center;font-size:17px;transition:.18s ease;
+  }
+  .role-btn:hover{border-color:var(--brass);background:#FFFBF2;box-shadow:0 4px 12px rgba(169,131,74,.18);transform:translateY(-2px);}
+  .role-btn:hover .role-icon{background:var(--brass-light);}
+  .role-btn.selected{background:var(--teal);color:#fff;border-color:var(--teal);box-shadow:0 4px 14px rgba(18,59,58,.3);transform:translateY(-2px);}
+  .role-btn.selected .role-icon{background:var(--brass);}
   select,input[type=text],input[type=tel],input[type=date],textarea{
     width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
     font-size:14.5px;font-family:inherit;background:#fff;color:var(--ink);margin-bottom:10px;
@@ -208,12 +228,12 @@
   <div class="login-card">
     <h3>Who's logging in?</h3>
     <div class="role-grid" id="roleGrid">
-      <div class="role-btn" data-role="reception">Reception</div>
-      <div class="role-btn" data-role="head">Head</div>
-      <div class="role-btn" data-role="tiles">Sales – Tiles</div>
-      <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
-      <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
-      <div class="role-btn" data-role="windows">Sales – Windows</div>
+      <div class="role-btn" data-role="reception"><span class="role-icon">🛎️</span>Reception</div>
+      <div class="role-btn" data-role="head"><span class="role-icon">👑</span>Head</div>
+      <div class="role-btn" data-role="tiles"><span class="role-icon">🧱</span>Sales – Tiles</div>
+      <div class="role-btn" data-role="sanitary"><span class="role-icon">🚿</span>Sales – Sanitary</div>
+      <div class="role-btn" data-role="kitchen"><span class="role-icon">🍳</span>Sales – Kitchen/Wardrobe</div>
+      <div class="role-btn" data-role="windows"><span class="role-icon">🪟</span>Sales – Windows</div>
     </div>
   </div>
 

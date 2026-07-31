@@ -346,7 +346,7 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
@@ -355,6 +355,7 @@ function normalizeStaffObj(s){
     if(!Array.isArray(s[k])) s[k]=[];
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
   });
+  if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
   if(!Array.isArray(s.heads) || s.heads.length!==3){
     s.heads = defaultStaff().heads;
   }
@@ -455,6 +456,10 @@ function normalizeLead(l){
   if(!l.receptionLog) l.receptionLog = [];
   if(!l.assignments) l.assignments = [];
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
+  if(l.state===undefined) l.state = '';
+  if(l.city===undefined) l.city = '';
+  if(l.referenceName===undefined) l.referenceName = '';
+  if(l.marketingPersonName===undefined) l.marketingPersonName = '';
   dedupeAssignments(l);
   l.receptionLog.forEach(log=>{
     if(log.nextFollowUp===undefined) log.nextFollowUp = null;
@@ -545,6 +550,11 @@ function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.to
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }
 function isDueToday(dateStr){ if(!dateStr) return false; return dateStr <= todayStr(); }
 function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function sourceDetailSuffix(l){
+  if(l.source==='Reference' && l.referenceName) return ` (${esc(l.referenceName)})`;
+  if(l.source==='Physical Marketing' && l.marketingPersonName) return ` (${esc(l.marketingPersonName)})`;
+  return '';
+}
 function toast(msg){
   const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
   document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
@@ -1078,7 +1088,7 @@ function leadCardReception(l){
       <div>
         <div class="lead-name">${esc(l.name)}</div>
         <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
-        <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
+        <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
       </div>
@@ -1116,6 +1126,17 @@ function viewAddLead(){
     <select id="newLeadSource">
       ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
     </select>
+    <div id="newLeadReferenceWrap" class="hidden">
+      <label>Name of reference</label>
+      <input type="text" id="newLeadReferenceName" placeholder="Who referred this customer?">
+    </div>
+    <div id="newLeadMarketingWrap" class="hidden">
+      <label>Marketing person</label>
+      <div style="position:relative;">
+        <input type="text" id="newLeadMarketingPerson" autocomplete="off" placeholder="Type or pick a marketing person">
+        <div id="newLeadMarketingSuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+      </div>
+    </div>
     <button class="btn btn-primary btn-full" id="saveNewLeadBtn">Save Lead</button>
   </div>`;
 }
@@ -1212,7 +1233,7 @@ function leadCardSales(lead, a){
       <div>
         <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
         <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
-        <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
+        <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
@@ -1619,6 +1640,22 @@ function viewManageLogins(){
     `).join('') : `<div class="empty" style="padding:8px 0;">No logins yet.</div>`}
   `).join('')}
 
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Marketing Persons</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">Just names — no login access. Used to tag which marketing person brought in a Physical Marketing lead, so you can filter by them later.</div>
+    <label>Name</label>
+    <input type="text" id="newMarketingPersonName" placeholder="e.g. Ravi (Banner Team)">
+    <button class="btn btn-primary btn-full" id="addMarketingPersonBtn">Add Marketing Person</button>
+  </div>
+  ${STAFF.marketingPersons.length ? STAFF.marketingPersons.map(name=>`
+    <div class="card" style="padding:10px 14px;">
+      <div class="card-row">
+        <div class="lead-name" style="font-size:14px;">${esc(name)}</div>
+        <button class="btn btn-ghost btn-sm removeMarketingPersonBtn" data-name="${esc(name)}">Remove</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty" style="padding:8px 0;">No marketing persons added yet.</div>`}
+
   <div class="section-title" style="margin-top:24px;color:var(--bad);">Danger Zone</div>
   <div class="card" style="border-color:var(--bad);">
     <div class="lead-meta" style="margin-bottom:10px;">Permanently deletes every lead and every follow-up. Staff logins are kept as-is. This cannot be undone.</div>
@@ -1665,6 +1702,28 @@ function bindManageLoginsHandlers(){
       STAFF[dept] = STAFF[dept].filter(p=>p.name!==name);
       await saveStaff(STAFF);
       toast(`Removed ${name}`);
+      renderApp();
+    });
+  });
+  const addMarketingPersonBtn = document.getElementById('addMarketingPersonBtn');
+  if(addMarketingPersonBtn){
+    addMarketingPersonBtn.addEventListener('click', async ()=>{
+      const name = document.getElementById('newMarketingPersonName').value.trim();
+      if(!name){ toast('Enter a name'); return; }
+      if(!STAFF.marketingPersons) STAFF.marketingPersons = [];
+      if(STAFF.marketingPersons.some(n=>n.toLowerCase()===name.toLowerCase())){ toast('That name is already on the list'); return; }
+      STAFF.marketingPersons.push(name);
+      await saveStaff(STAFF);
+      toast(`Added ${name}`);
+      renderApp();
+    });
+  }
+  document.querySelectorAll('.removeMarketingPersonBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(`Remove "${btn.dataset.name}" from the marketing persons list?`)) return;
+      STAFF.marketingPersons = STAFF.marketingPersons.filter(n=>n!==btn.dataset.name);
+      await saveStaff(STAFF);
+      toast('Removed');
       renderApp();
     });
   });
@@ -1919,6 +1978,9 @@ function allSalespeopleList(){
 }
 function viewAllLeads(){
   const salespeople = allSalespeopleList();
+  const marketingCounts = {};
+  LEADS.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
+  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
   return `
   <div class="searchbar"><input type="text" id="searchBox" placeholder="Search by name or phone..."></div>
   <div class="filter-row">
@@ -1939,11 +2001,16 @@ function viewAllLeads(){
       <option value="yes">Via company person</option>
       <option value="no">Not via company person</option>
     </select>
+    ${marketingNames.length ? `
+    <select id="filterMarketing">
+      <option value="">Marketing person: All</option>
+      ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)} (${marketingCounts[n]||0})</option>`).join('')}
+    </select>` : ''}
   </div>
-  <div id="allLeadsResults">${renderAllLeadsResults('','','','','')}</div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','')}</div>
   `;
 }
-function filterLeadsList(baseList, search, team, status, salesperson, companyFilter){
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -1964,11 +2031,14 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
   } else if(companyFilter==='no'){
     list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
   }
+  if(marketingFilter){
+    list = list.filter(l=> l.marketingPersonName===marketingFilter);
+  }
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return list.map(l=>leadCardHead(l)).join('');
 }
-function renderAllLeadsResults(search, team, status, salesperson, companyFilter){
-  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter);
+function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter){
+  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -2031,7 +2101,7 @@ function leadCardHead(l){
       <div>
         <div class="lead-name">${esc(l.name)}</div>
         <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
-        <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
+        <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
       </div>
     </div>
@@ -2226,7 +2296,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
     <div>
       <h3 style="font-size:18px;">${esc(lead.name)}</h3>
       <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
-      <div class="lead-meta">Source: ${esc(lead.source)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
+      <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
     </div>
     <button class="close-x" id="closeModalBtn">&times;</button>
   </div>`;
@@ -2377,7 +2447,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             </div>` : ''}
             <label>Product (if decided)</label>
             <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
-            <label>Was this referred by a company person?</label>
+            <label>Was this referred to a company person?</label>
             <select class="assignCompanyReferredSel" data-assign="${a.id}">
               <option value="no" ${!a.companyReferred?'selected':''}>No</option>
               <option value="yes" ${a.companyReferred?'selected':''}>Yes</option>
@@ -2637,6 +2707,44 @@ function bindDynamicHandlers(){
     });
   }
 
+  const newLeadSourceSel = document.getElementById('newLeadSource');
+  const newLeadReferenceWrap = document.getElementById('newLeadReferenceWrap');
+  const newLeadMarketingWrap = document.getElementById('newLeadMarketingWrap');
+  function toggleSourceFields(){
+    if(!newLeadSourceSel) return;
+    if(newLeadReferenceWrap) newLeadReferenceWrap.classList.toggle('hidden', newLeadSourceSel.value!=='Reference');
+    if(newLeadMarketingWrap) newLeadMarketingWrap.classList.toggle('hidden', newLeadSourceSel.value!=='Physical Marketing');
+  }
+  if(newLeadSourceSel){
+    toggleSourceFields();
+    newLeadSourceSel.addEventListener('change', toggleSourceFields);
+  }
+
+  const newLeadMarketingInput = document.getElementById('newLeadMarketingPerson');
+  const newLeadMarketingSuggestions = document.getElementById('newLeadMarketingSuggestions');
+  function renderMarketingSuggestions(){
+    if(!newLeadMarketingInput || !newLeadMarketingSuggestions) return;
+    const names = STAFF.marketingPersons || [];
+    const q = newLeadMarketingInput.value.trim().toLowerCase();
+    const matches = (q ? names.filter(n=>n.toLowerCase().includes(q)) : names).slice(0, 8);
+    if(!matches.length){ newLeadMarketingSuggestions.classList.add('hidden'); newLeadMarketingSuggestions.innerHTML=''; return; }
+    newLeadMarketingSuggestions.innerHTML = matches.map(n=>
+      `<div class="marketingSuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(n)}</div>`
+    ).join('');
+    newLeadMarketingSuggestions.classList.remove('hidden');
+    newLeadMarketingSuggestions.querySelectorAll('.marketingSuggestionItem').forEach(item=>{
+      item.addEventListener('click', ()=>{
+        newLeadMarketingInput.value = item.textContent;
+        newLeadMarketingSuggestions.classList.add('hidden');
+      });
+    });
+  }
+  if(newLeadMarketingInput){
+    newLeadMarketingInput.addEventListener('focus', renderMarketingSuggestions);
+    newLeadMarketingInput.addEventListener('input', renderMarketingSuggestions);
+    newLeadMarketingInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadMarketingSuggestions.classList.add('hidden'), 150); });
+  }
+
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
     saveNewLeadBtn.addEventListener('click', async ()=>{
@@ -2646,6 +2754,8 @@ function bindDynamicHandlers(){
       const state = document.getElementById('newLeadState').value;
       const city = document.getElementById('newLeadCity').value.trim();
       const source = document.getElementById('newLeadSource').value;
+      const referenceName = source==='Reference' ? document.getElementById('newLeadReferenceName').value.trim() : '';
+      const marketingPersonName = source==='Physical Marketing' ? document.getElementById('newLeadMarketingPerson').value.trim() : '';
       if(!name || !phone){ toast('Name and phone are required'); return; }
       // Same phone number already exists — prompt before creating a possible duplicate.
       const dupMatches = findLeadsByPhone(phone);
@@ -2655,7 +2765,7 @@ function bindDynamicHandlers(){
       }
       const isSalesAdding = SESSION.role!=='reception' && SESSION.role!=='head';
       const lead = {
-        id: uid(), name, phone, address, state, city, source,
+        id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
         receptionLog:[],
         assignments: isSalesAdding ? [{
@@ -2678,9 +2788,10 @@ function bindDynamicHandlers(){
   const filterStatus = document.getElementById('filterStatus');
   const filterSales = document.getElementById('filterSales');
   const filterCompany = document.getElementById('filterCompany');
+  const filterMarketing = document.getElementById('filterMarketing');
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'');
+      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -2691,6 +2802,7 @@ function bindDynamicHandlers(){
   if(filterStatus) filterStatus.addEventListener('change', refreshResults);
   if(filterSales) filterSales.addEventListener('change', refreshResults);
   if(filterCompany) filterCompany.addEventListener('change', refreshResults);
+  if(filterMarketing) filterMarketing.addEventListener('change', refreshResults);
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);

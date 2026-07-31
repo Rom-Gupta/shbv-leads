@@ -1154,6 +1154,9 @@ function daysSince(dateStr){
   return Math.floor((Date.now() - new Date(dateStr).getTime())/86400000);
 }
 
+function isMeetingDueOrOverdue(a){
+  return a.team==='kitchen' && a.pipelineStage==='align_meeting' && a.meetingDate && a.meetingDate<=todayStr() && a.status!=='sale' && a.status!=='lost';
+}
 function viewHeadOverview(){
   const total = LEADS.length;
   const today = LEADS.filter(l=>l.createdAt.slice(0,10)===todayStr()).length;
@@ -1168,7 +1171,7 @@ function viewHeadOverview(){
   }).length;
   const dueAcrossAll = LEADS.reduce((n,l)=>{
     let c=0;
-    (l.assignments||[]).forEach(a=>{ if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) c++; });
+    (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) c++; });
     if(!leadHasAssignments(l)){
       const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
       if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
@@ -1189,7 +1192,7 @@ function viewHeadOverview(){
   ${dueAcrossAll===0 ? `<div class="empty">Nothing overdue right now.</div>` : ''}
   ${LEADS.filter(l=>{
       let due=false;
-      (l.assignments||[]).forEach(a=>{ if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) due=true; });
+      (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) due=true; });
       if(!leadHasAssignments(l)){
         const last=l.receptionLog?.length?l.receptionLog[l.receptionLog.length-1]:null;
         if(!last || (last.status==='followup'&&isDueToday(last.nextFollowUp))) due=true;
@@ -1945,13 +1948,23 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
+// An assignment "has a plan" if it's resolved (sale/lost), has a scheduled follow-up
+// call, OR — for Kitchen specifically — has a meeting actually booked in the Align
+// Meeting stage. Without this, every Kitchen lead with a real meeting on the books
+// would wrongly show up as having "no follow-up scheduled".
+function assignmentHasPlan(a){
+  if(a.status==='sale' || a.status==='lost') return true;
+  if(a.nextFollowUp) return true;
+  if(a.team==='kitchen' && a.pipelineStage==='align_meeting' && a.meetingDate) return true;
+  return false;
+}
 function leadCurrentlyNeedsFollowup(l){
   if(!leadHasAssignments(l)){
     if(!l.receptionLog || !l.receptionLog.length) return true; // never contacted yet
     const last = l.receptionLog[l.receptionLog.length-1];
     return last.status !== 'followup' && last.status !== 'lost';
   }
-  return l.assignments.some(a=> a.status!=='sale' && a.status!=='lost' && !a.nextFollowUp);
+  return l.assignments.some(a=> !assignmentHasPlan(a));
 }
 
 function groupTodayActivityByLead(){
@@ -2033,8 +2046,8 @@ function viewReports(){
   ${needsFollowup.length===0 ? `<div class="empty">Everyone active has a follow-up plan in place.</div>` :
     needsFollowup.map(l=>{
       const assignments = l.assignments||[];
-      const missing = assignments.filter(a=> a.status!=='sale' && a.status!=='lost' && !a.nextFollowUp);
-      const covered = assignments.filter(a=> a.status==='sale' || a.status==='lost' || a.nextFollowUp);
+      const missing = assignments.filter(a=> !assignmentHasPlan(a));
+      const covered = assignments.filter(a=> assignmentHasPlan(a));
       return `
       <div class="card">
         <div class="card-row">

@@ -1101,17 +1101,17 @@ function viewAddLead(){
     <label>Phone number</label>
     <input type="tel" id="newLeadPhone" placeholder="10-digit number">
     <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
-    <label>Address</label>
-    <input type="text" id="newLeadAddress" placeholder="Address (optional)">
     <label>State</label>
     <select id="newLeadState">
       ${Object.keys(STATE_CITY_MAP).map(s=>`<option value="${s}" ${s==='Punjab'?'selected':''}>${s}</option>`).join('')}
     </select>
     <label>City</label>
-    <input type="text" id="newLeadCity" list="newLeadCityList" placeholder="Type or pick a city">
-    <datalist id="newLeadCityList">
-      ${STATE_CITY_MAP['Punjab'].map(c=>`<option value="${c}">`).join('')}
-    </datalist>
+    <div style="position:relative;">
+      <input type="text" id="newLeadCity" autocomplete="off" placeholder="Type or pick a city">
+      <div id="newLeadCitySuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+    </div>
+    <label>Address</label>
+    <input type="text" id="newLeadAddress" placeholder="Address (optional)">
     <label>Lead source</label>
     <select id="newLeadSource">
       ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
@@ -2606,11 +2606,34 @@ function bindDynamicHandlers(){
   if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
 
   const newLeadStateSel = document.getElementById('newLeadState');
+  const newLeadCityInput = document.getElementById('newLeadCity');
+  const newLeadCitySuggestions = document.getElementById('newLeadCitySuggestions');
+  function renderCitySuggestions(){
+    if(!newLeadCityInput || !newLeadCitySuggestions) return;
+    const cities = STATE_CITY_MAP[newLeadStateSel ? newLeadStateSel.value : 'Punjab'] || [];
+    const q = newLeadCityInput.value.trim().toLowerCase();
+    const matches = (q ? cities.filter(c=>c.toLowerCase().includes(q)) : cities).slice(0, 8);
+    if(!matches.length){ newLeadCitySuggestions.classList.add('hidden'); newLeadCitySuggestions.innerHTML=''; return; }
+    newLeadCitySuggestions.innerHTML = matches.map(c=>
+      `<div class="citySuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(c)}</div>`
+    ).join('');
+    newLeadCitySuggestions.classList.remove('hidden');
+    newLeadCitySuggestions.querySelectorAll('.citySuggestionItem').forEach(item=>{
+      item.addEventListener('click', ()=>{
+        newLeadCityInput.value = item.textContent;
+        newLeadCitySuggestions.classList.add('hidden');
+      });
+    });
+  }
+  if(newLeadCityInput){
+    newLeadCityInput.addEventListener('focus', renderCitySuggestions);
+    newLeadCityInput.addEventListener('input', renderCitySuggestions);
+    newLeadCityInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadCitySuggestions.classList.add('hidden'), 150); });
+  }
   if(newLeadStateSel){
     newLeadStateSel.addEventListener('change', ()=>{
-      const cities = STATE_CITY_MAP[newLeadStateSel.value] || [];
-      document.getElementById('newLeadCityList').innerHTML = cities.map(c=>`<option value="${c}">`).join('');
-      document.getElementById('newLeadCity').value = '';
+      newLeadCityInput.value = '';
+      newLeadCitySuggestions.classList.add('hidden');
     });
   }
 

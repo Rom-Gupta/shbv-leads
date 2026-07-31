@@ -591,6 +591,40 @@ function renderStaffAuthArea(){
   }
 }
 
+function recordLastLogin(role, name){
+  const list = role==='head' ? STAFF.heads : STAFF[role];
+  const person = list ? list.find(p=>p.name===name) : null;
+  if(person) person.lastLogin = new Date().toISOString();
+}
+function requestNotificationPermissionIfNeeded(){
+  if('Notification' in window && Notification.permission==='default'){
+    Notification.requestPermission();
+  }
+}
+function currentUserDueTodayCount(){
+  if(!SESSION) return 0;
+  if(SESSION.role==='reception') return receptionDueTodayCount();
+  if(SESSION.role==='head') return headDueTodayCount() + connectionsDueTodayCount();
+  return dueTodayCountForMe();
+}
+// Shows a real OS-level browser notification once per person per day — never spams,
+// even though this gets checked on every re-render.
+function checkAndNotifyDueToday(){
+  if(!SESSION || !('Notification' in window) || Notification.permission!=='granted') return;
+  const count = currentUserDueTodayCount();
+  if(count<=0) return;
+  const key = `shbv_notif_${SESSION.role}_${SESSION.name}_${todayStr()}`;
+  try{
+    if(localStorage.getItem(key)) return;
+    localStorage.setItem(key, '1');
+  }catch(e){ return; }
+  const n = new Notification('SHBV Leads', {
+    body: `You have ${count} follow-up${count>1?'s':''} due today.`,
+    icon: 'icon-192.png'
+  });
+  n.onclick = ()=>{ window.focus(); n.close(); };
+}
+
 async function loginAs(role, name){
   SESSION = {role, name};
   ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : 'myleads');
@@ -599,6 +633,8 @@ async function loginAs(role, name){
   document.getElementById('mainApp').classList.remove('hidden');
   const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':TEAM_LABELS[role]+' Sales');
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
+  recordLastLogin(role, name);
+  await saveStaff(STAFF);
   if(role==='head'){
     CONNECTIONS = await loadConnections();
     if(USE_FIREBASE){
@@ -609,10 +645,12 @@ async function loginAs(role, name){
     }
   }
   renderApp();
+  checkAndNotifyDueToday();
 }
 
 document.getElementById('enterBtn').addEventListener('click', async ()=>{
   if(!pendingRole) return;
+  requestNotificationPermissionIfNeeded();
   const errArea = document.getElementById('nameCardError');
   errArea.textContent = '';
 
@@ -855,6 +893,7 @@ async function renderApp(){
     else area.innerHTML = viewAllMyLeads();
   }
   bindDynamicHandlers();
+  checkAndNotifyDueToday();
 }
 
 /* ---------------- Upcoming Follow-ups (shared across all roles) ---------------- */
@@ -1157,6 +1196,17 @@ function daysSince(dateStr){
 function isMeetingDueOrOverdue(a){
   return a.team==='kitchen' && a.pipelineStage==='align_meeting' && a.meetingDate && a.meetingDate<=todayStr() && a.status!=='sale' && a.status!=='lost';
 }
+function headDueTodayCount(){
+  return LEADS.reduce((n,l)=>{
+    let c=0;
+    (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) c++; });
+    if(!leadHasAssignments(l)){
+      const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
+      if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
+    }
+    return n+c;
+  },0);
+}
 function viewHeadOverview(){
   const total = LEADS.length;
   const today = LEADS.filter(l=>l.createdAt.slice(0,10)===todayStr()).length;
@@ -1169,15 +1219,7 @@ function viewHeadOverview(){
     }
     return l.assignments.length>0 && l.assignments.every(a=>a.status==='lost');
   }).length;
-  const dueAcrossAll = LEADS.reduce((n,l)=>{
-    let c=0;
-    (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) c++; });
-    if(!leadHasAssignments(l)){
-      const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
-      if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
-    }
-    return n+c;
-  },0);
+  const dueAcrossAll = headDueTodayCount();
   const staleLeads = LEADS
     .map(l=>({lead:l, stale:staleAssignments(l)}))
     .filter(x=>x.stale.length);
@@ -1479,6 +1521,9 @@ function bindConnectionCardHandlers(){
 }
 
 /* ---------------- Head: Manage Logins ---------------- */
+function lastLoginText(p){
+  return p.lastLogin ? `Last login: ${fmtDateTime(p.lastLogin)}` : `Last login: never`;
+}
 function viewManageLogins(){
   const depts = ['reception','tiles','sanitary','kitchen','windows'];
   return `
@@ -1495,12 +1540,24 @@ function viewManageLogins(){
     <input type="password" id="newLoginPass" placeholder="Set a password for them (min 4 characters)">
     <button class="btn btn-primary btn-full" id="createLoginBtn">Create Login</button>
   </div>
+
+  <div class="section-title" style="margin-top:16px;">Heads</div>
+  ${STAFF.heads.map(p=>`
+    <div class="card" style="padding:10px 14px;">
+      <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+      <div class="lead-meta">${lastLoginText(p)}</div>
+    </div>
+  `).join('')}
+
   ${depts.map(dept=>`
     <div class="section-title" style="margin-top:16px;">${dept==='reception'?'Reception':'Sales – '+TEAM_LABELS[dept]}</div>
     ${STAFF[dept].length ? STAFF[dept].map(p=>`
       <div class="card" style="padding:10px 14px;">
         <div class="card-row">
-          <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+          <div>
+            <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+            <div class="lead-meta">${lastLoginText(p)}</div>
+          </div>
           <div class="row-btns" style="margin-top:0;">
             <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="${dept}" data-name="${esc(p.name)}">Reset Password</button>
             <button class="btn btn-ghost btn-sm removeLoginBtn" data-dept="${dept}" data-name="${esc(p.name)}">Remove</button>

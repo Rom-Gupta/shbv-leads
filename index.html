@@ -2053,6 +2053,10 @@ function leadsActiveInRange(start, end){
 }
 function rangeLeadsFilterPanel(prefix, range){
   const salespeople = allSalespeopleList();
+  const rangeLeads = leadsActiveInRange(range.start, range.end);
+  const marketingCounts = {};
+  rangeLeads.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
+  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
   return `
   <div class="section-title" style="margin-top:24px;">All Leads In This Period</div>
   <div class="searchbar"><input type="text" id="${prefix}SearchBox" placeholder="Search by name or phone..."></div>
@@ -2069,8 +2073,18 @@ function rangeLeadsFilterPanel(prefix, range){
       <option value="">All salesmen</option>
       ${salespeople.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('')}
     </select>
+    <select id="${prefix}FilterCompany">
+      <option value="">Company referral: All</option>
+      <option value="yes">Via company person</option>
+      <option value="no">Not via company person</option>
+    </select>
+    ${marketingNames.length ? `
+    <select id="${prefix}FilterMarketing">
+      <option value="">Marketing person: All</option>
+      ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)} (${marketingCounts[n]||0})</option>`).join('')}
+    </select>` : ''}
   </div>
-  <div id="${prefix}AllLeadsResults">${filterLeadsList(leadsActiveInRange(range.start, range.end), '', '', '', '')}</div>
+  <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '')}</div>
   `;
 }
 function bindRangeLeadsFilters(prefix, range){
@@ -2078,10 +2092,12 @@ function bindRangeLeadsFilters(prefix, range){
   const team = document.getElementById(prefix+'FilterTeam');
   const status = document.getElementById(prefix+'FilterStatus');
   const sales = document.getElementById(prefix+'FilterSales');
+  const company = document.getElementById(prefix+'FilterCompany');
+  const marketing = document.getElementById(prefix+'FilterMarketing');
   if(!search && !team && !status && !sales) return;
   function refresh(){
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
-      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'');
+      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -2091,6 +2107,8 @@ function bindRangeLeadsFilters(prefix, range){
   if(team) team.addEventListener('change', refresh);
   if(status) status.addEventListener('change', refresh);
   if(sales) sales.addEventListener('change', refresh);
+  if(company) company.addEventListener('change', refresh);
+  if(marketing) marketing.addEventListener('change', refresh);
 }
 
 function leadCardHead(l){

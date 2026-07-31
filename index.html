@@ -467,6 +467,9 @@ function normalizeLead(l){
     if(a.pendingConfirmation===undefined) a.pendingConfirmation = false; // kept for backward-compat with old saved data, no longer used
     if(a.meetingDate===undefined) a.meetingDate = null;
     if(a.pipelineStage===undefined) a.pipelineStage = null;
+    if(a.companyReferred===undefined) a.companyReferred = false;
+    if(a.companyName===undefined) a.companyName = '';
+    if(a.companyPersonName===undefined) a.companyPersonName = '';
     a.log.forEach(log=>{
       if(log.nextFollowUp===undefined) log.nextFollowUp = null;
     });
@@ -484,6 +487,14 @@ let ACTIVE_SUBTAB = null;
 
 const TEAM_LABELS = {tiles:'Tiles', sanitary:'Sanitary', kitchen:'Kitchen/Wardrobe', windows:'Windows'};
 const SOURCE_OPTIONS = ['Walk-in','Digital Ad','Reference','Physical Marketing'];
+const STATE_CITY_MAP = {
+  'Punjab': ['Amritsar','Barnala','Bathinda','Batala','Faridkot','Fatehgarh Sahib','Fazilka','Ferozepur','Gurdaspur','Hoshiarpur','Jalandhar','Kapurthala','Ludhiana','Mansa','Moga','Sri Muktsar Sahib','Pathankot','Patiala','Rupnagar','Mohali (SAS Nagar)','Sangrur','Nawanshahr (SBS Nagar)','Tarn Taran','Malerkotla','Zirakpur','Khanna','Abohar','Rajpura','Phagwara','Kharar','Nabha','Jagraon','Sunam','Goraya'],
+  'Chandigarh': ['Chandigarh'],
+  'Haryana': ['Panchkula','Ambala','Karnal','Kurukshetra','Yamunanagar','Panipat','Kaithal'],
+  'Himachal Pradesh': ['Una','Shimla','Solan','Bilaspur'],
+  'Delhi': ['New Delhi'],
+  'Other': []
+};
 const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
 // Kitchen/Wardrobe gets an extra "Pipeline" field alongside the normal Status —
 // it doesn't replace Pending/Visited/Sale/Lost, it just adds more detail on top of it.
@@ -826,7 +837,8 @@ function tabsFor(role){
   ];
   if(role==='head') return [
     {id:'overview', label:'Overview'},
-    {id:'analytics', label:'Analytics'},
+    {id:'analytics', label:'Analytics',
+      sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
@@ -896,7 +908,7 @@ async function renderApp(){
     else area.innerHTML = viewAllLeads(true);
   } else if(SESSION.role==='head'){
     if(ACTIVE_TAB==='overview') area.innerHTML = viewHeadOverview();
-    else if(ACTIVE_TAB==='analytics'){ area.innerHTML = viewAnalytics(); renderAnalyticsCharts(); }
+    else if(ACTIVE_TAB==='analytics'){ area.innerHTML = viewAnalytics(ACTIVE_SUBTAB||'monthly'); renderAnalyticsCharts(ACTIVE_SUBTAB||'monthly'); }
     else if(ACTIVE_TAB==='leads'){
       if(ACTIVE_SUBTAB==='crosssell') area.innerHTML = viewCrossSell();
       else if(ACTIVE_SUBTAB==='add') area.innerHTML = viewAddLead();
@@ -1065,7 +1077,7 @@ function leadCardReception(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
@@ -1091,6 +1103,15 @@ function viewAddLead(){
     <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
     <label>Address</label>
     <input type="text" id="newLeadAddress" placeholder="Address (optional)">
+    <label>State</label>
+    <select id="newLeadState">
+      ${Object.keys(STATE_CITY_MAP).map(s=>`<option value="${s}" ${s==='Punjab'?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <label>City</label>
+    <input type="text" id="newLeadCity" list="newLeadCityList" placeholder="Type or pick a city">
+    <datalist id="newLeadCityList">
+      ${STATE_CITY_MAP['Punjab'].map(c=>`<option value="${c}">`).join('')}
+    </datalist>
     <label>Lead source</label>
     <select id="newLeadSource">
       ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
@@ -1190,7 +1211,7 @@ function leadCardSales(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
-        <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
+        <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
         <div class="lead-meta">Source: ${esc(lead.source)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
@@ -1339,23 +1360,30 @@ function makePieChart(canvasId, labels, data, title){
   });
   ANALYTICS_CHARTS.push(chart);
 }
-function viewAnalytics(){
+function analyticsRangeFor(period){
+  if(period==='daily') return {start: todayStr(), end: todayStr()};
+  if(period==='weekly') return defaultWeekRange();
+  return defaultMonthRange();
+}
+function viewAnalytics(period){
+  const range = analyticsRangeFor(period);
+  const stats = computeWeeklyStats(range.start, range.end);
   const salesByDept = {};
-  Object.keys(TEAM_LABELS).forEach(t=> salesByDept[t]=0);
-  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{ if(a.status==='sale') salesByDept[a.team]++; }));
+  Object.keys(TEAM_LABELS).forEach(t=> salesByDept[t] = stats.byTeam[t].sale);
   const deptsWithSales = Object.keys(TEAM_LABELS).filter(t=> salesByDept[t]>0);
 
   const bySource = {};
   SOURCE_OPTIONS.forEach(s=> bySource[s]=0);
-  LEADS.forEach(l=> { if(bySource[l.source]===undefined) bySource[l.source]=0; bySource[l.source]++; });
+  LEADS.filter(l=>inRange(l.createdAt, range.start, range.end)).forEach(l=>{ if(bySource[l.source]===undefined) bySource[l.source]=0; bySource[l.source]++; });
   const hasSourceData = Object.values(bySource).some(v=>v>0);
 
+  let html = `<div class="lead-meta" style="margin-bottom:10px;">${fmtDate(range.start)} – ${fmtDate(range.end)}</div>`;
+
   if(!deptsWithSales.length && !hasSourceData){
-    return `<div class="empty">Not enough data yet — add some leads and close a few sales to see charts here.</div>`;
+    return html + `<div class="empty">No activity in this period yet.</div>`;
   }
 
-  let html = `<div class="chart-grid">`;
-
+  html += `<div class="chart-grid">`;
   if(deptsWithSales.length){
     html += `<div class="chart-tile"><div class="chart-tile-title">Sales Done — By Department</div><div class="chart-box"><canvas id="chartByDept"></canvas></div></div>`;
   }
@@ -1365,35 +1393,28 @@ function viewAnalytics(){
   deptsWithSales.forEach(team=>{
     html += `<div class="chart-tile"><div class="chart-tile-title">Sales — ${TEAM_LABELS[team]} by Salesperson</div><div class="chart-box"><canvas id="chartSales_${team}"></canvas></div></div>`;
   });
-
   html += `</div>`;
   return html;
 }
-function renderAnalyticsCharts(){
+function renderAnalyticsCharts(period){
+  const range = analyticsRangeFor(period);
+  const stats = computeWeeklyStats(range.start, range.end);
   const salesByDept = {};
-  Object.keys(TEAM_LABELS).forEach(t=> salesByDept[t]=0);
-  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{ if(a.status==='sale') salesByDept[a.team]++; }));
+  Object.keys(TEAM_LABELS).forEach(t=> salesByDept[t] = stats.byTeam[t].sale);
   const deptsWithSales = Object.keys(TEAM_LABELS).filter(t=> salesByDept[t]>0);
 
   if(deptsWithSales.length){
     makePieChart('chartByDept', deptsWithSales.map(t=>TEAM_LABELS[t]), deptsWithSales.map(t=>salesByDept[t]));
   }
 
-  const bySalesperson = {};
-  Object.keys(TEAM_LABELS).forEach(t=> bySalesperson[t]={});
-  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
-    if(a.status==='sale'){
-      bySalesperson[a.team][a.salesperson] = (bySalesperson[a.team][a.salesperson]||0)+1;
-    }
-  }));
   deptsWithSales.forEach(team=>{
-    const names = Object.keys(bySalesperson[team]);
-    makePieChart(`chartSales_${team}`, names, names.map(n=>bySalesperson[team][n]));
+    const teamSales = Object.values(stats.bySales).filter(s=>s.team===team && s.sale>0);
+    makePieChart(`chartSales_${team}`, teamSales.map(s=>s.name), teamSales.map(s=>s.sale));
   });
 
   const bySource = {};
   SOURCE_OPTIONS.forEach(s=> bySource[s]=0);
-  LEADS.forEach(l=> { if(bySource[l.source]===undefined) bySource[l.source]=0; bySource[l.source]++; });
+  LEADS.filter(l=>inRange(l.createdAt, range.start, range.end)).forEach(l=>{ if(bySource[l.source]===undefined) bySource[l.source]=0; bySource[l.source]++; });
   const sourceLabels = Object.keys(bySource).filter(s=>bySource[s]>0);
   if(sourceLabels.length){
     makePieChart('chartBySource', sourceLabels, sourceLabels.map(s=>bySource[s]));
@@ -1913,11 +1934,16 @@ function viewAllLeads(){
       <option value="">All salesmen</option>
       ${salespeople.map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('')}
     </select>
+    <select id="filterCompany">
+      <option value="">Company referral: All</option>
+      <option value="yes">Via company person</option>
+      <option value="no">Not via company person</option>
+    </select>
   </div>
-  <div id="allLeadsResults">${renderAllLeadsResults('','','','')}</div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','','')}</div>
   `;
 }
-function filterLeadsList(baseList, search, team, status, salesperson){
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -1933,11 +1959,16 @@ function filterLeadsList(baseList, search, team, status, salesperson){
   if(salesperson){
     list = list.filter(l=> (l.assignments||[]).some(a=>a.salesperson===salesperson));
   }
+  if(companyFilter==='yes'){
+    list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));
+  } else if(companyFilter==='no'){
+    list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
+  }
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return list.map(l=>leadCardHead(l)).join('');
 }
-function renderAllLeadsResults(search, team, status, salesperson){
-  return filterLeadsList(LEADS, search, team, status, salesperson);
+function renderAllLeadsResults(search, team, status, salesperson, companyFilter){
+  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -1999,7 +2030,7 @@ function leadCardHead(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}</div>
+        <div class="lead-meta">${esc(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
       </div>
@@ -2194,7 +2225,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   <div class="modal-top">
     <div>
       <h3 style="font-size:18px;">${esc(lead.name)}</h3>
-      <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}</div>
+      <div class="lead-meta">${esc(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
       <div class="lead-meta">Source: ${esc(lead.source)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
     </div>
     <button class="close-x" id="closeModalBtn">&times;</button>
@@ -2314,6 +2345,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
           </div>
         </div>
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
+        ${a.companyReferred ? `<div class="lead-meta" style="margin-top:2px;">🏢 Via company: <b>${esc(a.companyName||'—')}</b>${a.companyPersonName?` (${esc(a.companyPersonName)})`:''}</div>` : ''}
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
         ${(a.log||[]).slice().reverse().map(log=>{
           const isFollowupLog = log.status==='followup' || log.status==='no-followup';
@@ -2345,6 +2377,17 @@ function renderLeadDetail(lead, focusAssignId, mode){
             </div>` : ''}
             <label>Product (if decided)</label>
             <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
+            <label>Was this referred by a company person?</label>
+            <select class="assignCompanyReferredSel" data-assign="${a.id}">
+              <option value="no" ${!a.companyReferred?'selected':''}>No</option>
+              <option value="yes" ${a.companyReferred?'selected':''}>Yes</option>
+            </select>
+            <div class="assignCompanyFieldsWrap-${a.id}" ${a.companyReferred?'':'style="display:none;"'}>
+              <label>Company name</label>
+              <input type="text" class="assignCompanyNameInput" data-assign="${a.id}" value="${esc(a.companyName||'')}" placeholder="e.g. ABC Architects">
+              <label>Person's name</label>
+              <input type="text" class="assignCompanyPersonInput" data-assign="${a.id}" value="${esc(a.companyPersonName||'')}" placeholder="Who at that company referred this?">
+            </div>
             <label>Remarks</label>
             <textarea class="assignRemarksInput" data-assign="${a.id}" placeholder="What happened at/after the visit?"></textarea>
             <button class="btn btn-primary btn-sm saveAssignBtn" data-assign="${a.id}">Save Outcome</button>
@@ -2562,12 +2605,23 @@ function bindDynamicHandlers(){
   if(newLeadPhoneInput) newLeadPhoneInput.addEventListener('input', checkDuplicatePhone);
   if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
 
+  const newLeadStateSel = document.getElementById('newLeadState');
+  if(newLeadStateSel){
+    newLeadStateSel.addEventListener('change', ()=>{
+      const cities = STATE_CITY_MAP[newLeadStateSel.value] || [];
+      document.getElementById('newLeadCityList').innerHTML = cities.map(c=>`<option value="${c}">`).join('');
+      document.getElementById('newLeadCity').value = '';
+    });
+  }
+
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
     saveNewLeadBtn.addEventListener('click', async ()=>{
       const name = document.getElementById('newLeadName').value.trim();
       const phone = document.getElementById('newLeadPhone').value.trim();
       const address = document.getElementById('newLeadAddress').value.trim();
+      const state = document.getElementById('newLeadState').value;
+      const city = document.getElementById('newLeadCity').value.trim();
       const source = document.getElementById('newLeadSource').value;
       if(!name || !phone){ toast('Name and phone are required'); return; }
       // Same phone number already exists — prompt before creating a possible duplicate.
@@ -2578,7 +2632,7 @@ function bindDynamicHandlers(){
       }
       const isSalesAdding = SESSION.role!=='reception' && SESSION.role!=='head';
       const lead = {
-        id: uid(), name, phone, address, source,
+        id: uid(), name, phone, address, state, city, source,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
         receptionLog:[],
         assignments: isSalesAdding ? [{
@@ -2600,9 +2654,10 @@ function bindDynamicHandlers(){
   const filterTeam = document.getElementById('filterTeam');
   const filterStatus = document.getElementById('filterStatus');
   const filterSales = document.getElementById('filterSales');
+  const filterCompany = document.getElementById('filterCompany');
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'');
+      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -2612,6 +2667,7 @@ function bindDynamicHandlers(){
   if(filterTeam) filterTeam.addEventListener('change', refreshResults);
   if(filterStatus) filterStatus.addEventListener('change', refreshResults);
   if(filterSales) filterSales.addEventListener('change', refreshResults);
+  if(filterCompany) filterCompany.addEventListener('change', refreshResults);
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
@@ -2652,6 +2708,13 @@ function bindModalHandlers(lead){
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`.assignMeetingDateWrap-${sel.dataset.assign}`);
       if(wrap) wrap.style.display = sel.value==='align_meeting' ? 'block' : 'none';
+    });
+  });
+
+  document.querySelectorAll('.assignCompanyReferredSel').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const wrap = document.querySelector(`.assignCompanyFieldsWrap-${sel.dataset.assign}`);
+      if(wrap) wrap.style.display = sel.value==='yes' ? 'block' : 'none';
     });
   });
 
@@ -2741,6 +2804,15 @@ function bindModalHandlers(lead){
           const meetingDateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${aid}"]`);
           a.meetingDate = meetingDateEl ? meetingDateEl.value : null;
         }
+      }
+      const companyReferredSel = document.querySelector(`.assignCompanyReferredSel[data-assign="${aid}"]`);
+      a.companyReferred = companyReferredSel ? companyReferredSel.value==='yes' : false;
+      if(a.companyReferred){
+        a.companyName = document.querySelector(`.assignCompanyNameInput[data-assign="${aid}"]`).value.trim();
+        a.companyPersonName = document.querySelector(`.assignCompanyPersonInput[data-assign="${aid}"]`).value.trim();
+      } else {
+        a.companyName = '';
+        a.companyPersonName = '';
       }
       // Resolving the deal (sale/lost) clears any pending follow-up plan.
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —

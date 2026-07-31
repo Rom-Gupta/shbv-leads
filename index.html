@@ -157,6 +157,7 @@
   .badge-align_meeting{background:var(--warn-bg);color:var(--warn);}
   .badge-meeting_quotation{background:#FBEFE0;color:var(--brass);}
   .badge-pipeline-pending{background:var(--bad-bg);color:var(--bad);opacity:.85;}
+  .badge-log-update{background:var(--info-bg);color:var(--info);}
   .badge-new{background:var(--bad);color:#fff;}
 
   .section-title{font-size:12.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--brass);font-weight:700;margin:14px 0 6px;}
@@ -2314,11 +2315,17 @@ function renderLeadDetail(lead, focusAssignId, mode){
         </div>
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
-        ${(a.log||[]).slice().reverse().map(log=>`
+        ${(a.log||[]).slice().reverse().map(log=>{
+          const isFollowupLog = log.status==='followup' || log.status==='no-followup';
+          return `
           <div class="log-entry">
-            <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)}</div>
+            <div class="card-row" style="align-items:flex-start;">
+              <div class="meta">${esc(log.author)} · ${fmtDateTime(log.timestamp)}</div>
+              <span class="badge ${isFollowupLog?'badge-followup':'badge-log-update'}" style="flex-shrink:0;">${isFollowupLog?'Follow-up':'Update'}</span>
+            </div>
             ${esc(log.remarks)} ${log.nextFollowUp?`<div class="meta">Next call: ${fmtDate(log.nextFollowUp)}</div>`:''}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
         ${mine ? `
           <div id="outcomeSection-${a.id}" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:10px;">
             <div class="section-title" style="margin:0 0 6px;">Update Visit Outcome</div>

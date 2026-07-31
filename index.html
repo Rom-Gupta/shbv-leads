@@ -12,10 +12,6 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SHBV Leads">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-app-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <style>
   :root{
     --ink:#152524;
@@ -262,6 +258,10 @@
   <div id="viewArea"></div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script>
 /* ---------------- Firebase config ---------------- */
 const firebaseConfig = {
@@ -2805,8 +2805,7 @@ function bindModalHandlers(lead){
 (async function init(){
   try{
     await ensureAuth();
-    LEADS = await loadLeads();
-    STAFF = await loadStaff();
+    [LEADS, STAFF] = await Promise.all([loadLeads(), loadStaff()]);
     subscribeToLiveUpdates();
     document.getElementById('connectingScreen').classList.add('hidden');
     document.getElementById('loginScreen').classList.remove('hidden');

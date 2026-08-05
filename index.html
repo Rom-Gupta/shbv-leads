@@ -194,6 +194,12 @@
   .chart-tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:0 1px 2px rgba(21,37,36,.03), 0 2px 8px rgba(21,37,36,.04);}
   .chart-tile-title{font-size:12.5px;font-weight:700;color:var(--teal);margin-bottom:8px;text-align:center;}
   .chart-box{position:relative;width:100%;max-width:220px;height:220px;margin:0 auto;}
+  .phone-input-group{display:flex;gap:0;margin-bottom:10px;}
+  .phone-input-group .phone-prefix{
+    display:flex;align-items:center;padding:0 10px;border:1px solid var(--line);border-right:none;
+    border-radius:8px 0 0 8px;background:#F3F1EA;color:var(--ink-soft);font-size:14.5px;font-weight:600;white-space:nowrap;
+  }
+  .phone-input-group input[type=tel]{border-radius:0 8px 8px 0;margin-bottom:0;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
   .filter-row select{width:auto;margin-bottom:0;font-size:13px;padding:7px 10px;}
   .helper{font-size:12px;color:var(--ink-soft);margin-top:-4px;margin-bottom:10px;}
@@ -1111,7 +1117,10 @@ function viewAddLead(){
     <label>Customer name</label>
     <input type="text" id="newLeadName" placeholder="Full name">
     <label>Phone number</label>
-    <input type="tel" id="newLeadPhone" placeholder="10-digit number">
+    <div class="phone-input-group">
+      <span class="phone-prefix">+91</span>
+      <input type="tel" id="newLeadPhone" placeholder="10-digit number">
+    </div>
     <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
     <label>State</label>
     <select id="newLeadState">
@@ -1458,7 +1467,10 @@ function viewConnectionsAdd(){
     <label>Name</label>
     <input type="text" id="connName" placeholder="Full name">
     <label>Phone number</label>
-    <input type="tel" id="connPhone" placeholder="10-digit number">
+    <div class="phone-input-group">
+      <span class="phone-prefix">+91</span>
+      <input type="tel" id="connPhone" placeholder="10-digit number">
+    </div>
     <label>Work / Occupation</label>
     <input type="text" id="connWork" placeholder="e.g. Architect, Contractor, Interior Designer">
     <label>Remarks</label>

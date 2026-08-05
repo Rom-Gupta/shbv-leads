@@ -304,6 +304,8 @@ function normalizeConnection(c){
   if(c.meetingScheduled===undefined) c.meetingScheduled = false;
   if(c.meetingDate===undefined) c.meetingDate = null;
   if(c.meetingTime===undefined) c.meetingTime = null;
+  if(c.state===undefined) c.state = '';
+  if(c.city===undefined) c.city = '';
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -1596,6 +1598,15 @@ function viewConnectionsAdd(){
     </div>
     <label>Work / Occupation</label>
     <input type="text" id="connWork" placeholder="e.g. Architect, Contractor, Interior Designer">
+    <label>State</label>
+    <select id="connState">
+      ${Object.keys(STATE_CITY_MAP).map(s=>`<option value="${s}" ${s==='Punjab'?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <label>City</label>
+    <div style="position:relative;">
+      <input type="text" id="connCity" autocomplete="off" placeholder="Type or pick a city">
+      <div id="connCitySuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+    </div>
     <label>Remarks</label>
     <textarea id="connRemarks" placeholder="What did they need? Any context to remember..."></textarea>
     <label>First call date (optional — when do you want to call them for the first time?)</label>
@@ -1663,12 +1674,32 @@ function connectionCard(c, compact){
     </div>
     <button class="btn btn-brass btn-sm saveConnFollowupBtn" data-conn="${c.id}">Save Follow-up</button>
   `;
+  const editForm = `
+    <div class="section-title" style="margin:0 0 6px;">Edit Details</div>
+    <label>Name</label>
+    <input type="text" class="connEditName" data-conn="${c.id}" value="${esc(c.name)}">
+    <label>Phone number</label>
+    <div class="phone-input-group">
+      <span class="phone-prefix">+91</span>
+      <input type="tel" class="connEditPhone" data-conn="${c.id}" value="${esc(c.phone)}">
+    </div>
+    <label>Work / Occupation</label>
+    <input type="text" class="connEditWork" data-conn="${c.id}" value="${esc(c.occupation||'')}">
+    <label>State</label>
+    <select class="connEditState" data-conn="${c.id}">
+      ${Object.keys(STATE_CITY_MAP).map(s=>`<option value="${s}" ${(c.state||'Punjab')===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <label>City</label>
+    <input type="text" class="connEditCity" data-conn="${c.id}" value="${esc(c.city||'')}">
+    <button class="btn btn-primary btn-sm saveConnEditBtn" data-conn="${c.id}">Save Changes</button>
+  `;
   return `
   <div class="card">
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(c.name)}</div>
         <div class="lead-meta">${displayPhone(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+        ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
         <div class="lead-meta">Added ${fmtDate(c.createdAt)} by <b>${esc(c.createdBy||'—')}</b></div>
         ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
         ${c.meetingScheduled && c.meetingDate ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="connection" data-id="${c.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
@@ -1684,15 +1715,23 @@ function connectionCard(c, compact){
     ${compact ? `
       <div class="row-btns" style="margin-top:8px;">
         <button class="btn btn-brass btn-sm toggleConnFollowupBtn" data-conn="${c.id}">Log Follow-up</button>
+        <button class="btn btn-ghost btn-sm toggleConnEditBtn" data-conn="${c.id}">Edit</button>
         <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}">Delete</button>
       </div>
       <div class="assign-block hidden" id="connFollowupForm-${c.id}" style="margin-top:10px;">
         ${followupForm}
       </div>
+      <div class="assign-block hidden" id="connEditForm-${c.id}" style="margin-top:10px;">
+        ${editForm}
+      </div>
     ` : `
       <div class="assign-block" style="margin-top:10px;">
         ${followupForm}
+        <button class="btn btn-ghost btn-sm toggleConnEditBtn" data-conn="${c.id}" style="margin-left:6px;">Edit</button>
         <button class="btn btn-ghost btn-sm deleteConnBtn" data-conn="${c.id}" data-conn-name="${esc(c.name)}" style="margin-left:6px;">Delete</button>
+      </div>
+      <div class="assign-block hidden" id="connEditForm-${c.id}" style="margin-top:10px;">
+        ${editForm}
       </div>
     `}
   </div>`;
@@ -1720,6 +1759,30 @@ function bindConnectionCardHandlers(){
     btn.addEventListener('click', ()=>{
       const form = document.getElementById(`connFollowupForm-${btn.dataset.conn}`);
       if(form) form.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.toggleConnEditBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const form = document.getElementById(`connEditForm-${btn.dataset.conn}`);
+      if(form) form.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.saveConnEditBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.conn;
+      const c = CONNECTIONS.find(x=>x.id===id);
+      if(!c) return;
+      const name = document.querySelector(`.connEditName[data-conn="${id}"]`).value.trim();
+      const phone = document.querySelector(`.connEditPhone[data-conn="${id}"]`).value.trim();
+      if(!name || !phone){ toast('Name and phone are required'); return; }
+      c.name = name;
+      c.phone = phone;
+      c.occupation = document.querySelector(`.connEditWork[data-conn="${id}"]`).value.trim();
+      c.state = document.querySelector(`.connEditState[data-conn="${id}"]`).value;
+      c.city = document.querySelector(`.connEditCity[data-conn="${id}"]`).value.trim();
+      await saveConnections(CONNECTIONS);
+      toast('Connection updated');
+      renderApp();
     });
   });
   document.querySelectorAll('.connNoFuture').forEach(chk=>{
@@ -2861,6 +2924,8 @@ function bindDynamicHandlers(){
       const name = document.getElementById('connName').value.trim();
       const phone = document.getElementById('connPhone').value.trim();
       const occupation = document.getElementById('connWork').value.trim();
+      const state = document.getElementById('connState').value;
+      const city = document.getElementById('connCity').value.trim();
       const remarks = document.getElementById('connRemarks').value.trim();
       const nextDate = document.getElementById('connNextDate').value;
       const meetingScheduled = document.getElementById('connMeetingScheduled').value==='yes';
@@ -2868,7 +2933,7 @@ function bindDynamicHandlers(){
       const meetingTime = meetingScheduled ? (document.getElementById('connMeetingTime').value || null) : null;
       if(!name || !phone){ toast('Name and phone are required'); return; }
       CONNECTIONS.push({
-        id: uid(), name, phone, occupation, remarks,
+        id: uid(), name, phone, occupation, state, city, remarks,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
         nextFollowUp: nextDate || null, meetingScheduled, meetingDate, meetingTime, log: []
       });
@@ -2952,37 +3017,39 @@ function bindDynamicHandlers(){
   if(newLeadPhoneInput) newLeadPhoneInput.addEventListener('input', checkDuplicatePhone);
   if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
 
-  const newLeadStateSel = document.getElementById('newLeadState');
-  const newLeadCityInput = document.getElementById('newLeadCity');
-  const newLeadCitySuggestions = document.getElementById('newLeadCitySuggestions');
-  function renderCitySuggestions(){
-    if(!newLeadCityInput || !newLeadCitySuggestions) return;
-    const cities = STATE_CITY_MAP[newLeadStateSel ? newLeadStateSel.value : 'Punjab'] || [];
-    const q = newLeadCityInput.value.trim().toLowerCase();
-    const matches = (q ? cities.filter(c=>c.toLowerCase().includes(q)) : cities).slice(0, 8);
-    if(!matches.length){ newLeadCitySuggestions.classList.add('hidden'); newLeadCitySuggestions.innerHTML=''; return; }
-    newLeadCitySuggestions.innerHTML = matches.map(c=>
-      `<div class="citySuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(c)}</div>`
-    ).join('');
-    newLeadCitySuggestions.classList.remove('hidden');
-    newLeadCitySuggestions.querySelectorAll('.citySuggestionItem').forEach(item=>{
-      item.addEventListener('click', ()=>{
-        newLeadCityInput.value = item.textContent;
-        newLeadCitySuggestions.classList.add('hidden');
+  function bindCityAutocomplete(stateSelId, cityInputId, suggestionsId){
+    const stateSel = document.getElementById(stateSelId);
+    const cityInput = document.getElementById(cityInputId);
+    const suggestions = document.getElementById(suggestionsId);
+    if(!cityInput || !suggestions) return;
+    function render(){
+      const cities = STATE_CITY_MAP[stateSel ? stateSel.value : 'Punjab'] || [];
+      const q = cityInput.value.trim().toLowerCase();
+      const matches = (q ? cities.filter(c=>c.toLowerCase().includes(q)) : cities).slice(0, 8);
+      if(!matches.length){ suggestions.classList.add('hidden'); suggestions.innerHTML=''; return; }
+      suggestions.innerHTML = matches.map(c=>
+        `<div class="citySuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(c)}</div>`
+      ).join('');
+      suggestions.classList.remove('hidden');
+      suggestions.querySelectorAll('.citySuggestionItem').forEach(item=>{
+        item.addEventListener('click', ()=>{
+          cityInput.value = item.textContent;
+          suggestions.classList.add('hidden');
+        });
       });
-    });
+    }
+    cityInput.addEventListener('focus', render);
+    cityInput.addEventListener('input', render);
+    cityInput.addEventListener('blur', ()=>{ setTimeout(()=>suggestions.classList.add('hidden'), 150); });
+    if(stateSel){
+      stateSel.addEventListener('change', ()=>{
+        cityInput.value = '';
+        suggestions.classList.add('hidden');
+      });
+    }
   }
-  if(newLeadCityInput){
-    newLeadCityInput.addEventListener('focus', renderCitySuggestions);
-    newLeadCityInput.addEventListener('input', renderCitySuggestions);
-    newLeadCityInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadCitySuggestions.classList.add('hidden'), 150); });
-  }
-  if(newLeadStateSel){
-    newLeadStateSel.addEventListener('change', ()=>{
-      newLeadCityInput.value = '';
-      newLeadCitySuggestions.classList.add('hidden');
-    });
-  }
+  bindCityAutocomplete('newLeadState', 'newLeadCity', 'newLeadCitySuggestions');
+  bindCityAutocomplete('connState', 'connCity', 'connCitySuggestions');
 
   const newLeadSourceSel = document.getElementById('newLeadSource');
   const newLeadReferenceWrap = document.getElementById('newLeadReferenceWrap');

@@ -553,6 +553,18 @@ function whatsappIcon(p){
   if(!link) return '';
   return `<a href="${link}" target="_blank" rel="noopener" title="Chat on WhatsApp" style="margin-left:6px;text-decoration:none;color:var(--ok);font-weight:700;" onclick="event.stopPropagation();">💬</a>`;
 }
+function callLink(p){
+  let digits = normalizePhone(p);
+  if(!digits) return null;
+  if(digits.length===10) digits = '91'+digits;
+  else if(digits.length===11 && digits.startsWith('0')) digits = '91'+digits.slice(1);
+  return `tel:+${digits}`;
+}
+function callIcon(p){
+  const link = callLink(p);
+  if(!link) return '';
+  return `<a href="${link}" title="Call" style="margin-left:6px;text-decoration:none;color:var(--teal);font-weight:700;" onclick="event.stopPropagation();">📞</a>`;
+}
 // Displays a saved number with a +91 country code by default, since that's what
 // every number in this app is assumed to be unless it already has a code.
 function displayPhone(p){
@@ -1118,7 +1130,7 @@ function viewUpcomingFollowups(){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(e.lead.name)}</div>
-          <div class="lead-meta">${displayPhone(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
+          <div class="lead-meta">${displayPhone(e.lead.phone)}${callIcon(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
         </div>
         ${followupBadgeFor(e.date)}
       </div>
@@ -1138,7 +1150,7 @@ function crossSellLeadCard(l){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(l.name)}</div>
-          <div class="lead-meta">${displayPhone(l.phone)}${whatsappIcon(l.phone)}</div>
+          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)}</div>
           ${soldFrom ? `<div class="lead-meta">Bought: <b>${esc(soldFrom)}</b></div>` :
             touchedFrom ? `<div class="lead-meta">So far: ${esc(touchedFrom)}</div>` :
             `<div class="lead-meta">Not yet referred to any department.</div>`}
@@ -1210,7 +1222,7 @@ function leadCardReception(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${displayPhone(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
@@ -1298,7 +1310,7 @@ function viewMyLeads(mode){
           <div class="card-row">
             <div>
               <div class="lead-name">${esc(lead.name)}</div>
-              <div class="lead-meta">${displayPhone(lead.phone)}${whatsappIcon(lead.phone)}</div>
+              <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
               <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(a.meetingDate)}</b></div>
             </div>
           </div>
@@ -1358,7 +1370,7 @@ function leadCardSales(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
-        <div class="lead-meta">${displayPhone(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
+        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
         <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
@@ -1448,7 +1460,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(x.lead.name)}</div>
-            <div class="lead-meta">${displayPhone(x.lead.phone)}${whatsappIcon(x.lead.phone)}</div>
+            <div class="lead-meta">${displayPhone(x.lead.phone)}${callIcon(x.lead.phone)}${whatsappIcon(x.lead.phone)}</div>
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
               ${x.stale.map(a=>`<span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)}d idle</span>`).join('')}
             </div>
@@ -1472,7 +1484,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(c.name)}</div>
-            <div class="lead-meta">${displayPhone(c.phone)}${whatsappIcon(c.phone)}</div>
+            <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
             <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}</b></div>
           </div>
         </div>
@@ -1494,7 +1506,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(c.name)}</div>
-            <div class="lead-meta">${displayPhone(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+            <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
             ${callDue ? `<span class="badge badge-followup">Call due</span>` : ''}
@@ -1732,7 +1744,7 @@ function connectionCard(c, compact){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(c.name)}</div>
-        <div class="lead-meta">${displayPhone(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+        <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
         ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
         <div class="lead-meta">Added ${fmtDate(c.createdAt)} by <b>${esc(c.createdBy||'—')}</b></div>
         ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
@@ -2412,7 +2424,7 @@ function leadCardHead(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${displayPhone(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
       </div>
@@ -2554,7 +2566,7 @@ function viewReports(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(l.name)}</div>
-            <div class="lead-meta">${displayPhone(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
+            <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
             ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
               <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
                 ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]}: needs follow-up</span>`).join('')}
@@ -2607,7 +2619,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   <div class="modal-top">
     <div>
       <h3 style="font-size:18px;">${esc(lead.name)}</h3>
-      <div class="lead-meta">${displayPhone(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
+      <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
       <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
     </div>
     <button class="close-x" id="closeModalBtn">&times;</button>

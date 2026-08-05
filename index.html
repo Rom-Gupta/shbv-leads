@@ -983,10 +983,9 @@ function tabsFor(role){
     {id:'analytics', label:'Analytics',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
-      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'add', label:'+ New Lead'}]},
+      sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
-      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}]},
-    {id:'upcoming', label:'Upcoming Follow-ups'},
+      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}]},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
@@ -1054,15 +1053,17 @@ async function renderApp(){
     else if(ACTIVE_TAB==='analytics'){ area.innerHTML = viewAnalytics(ACTIVE_SUBTAB||'monthly'); renderAnalyticsCharts(ACTIVE_SUBTAB||'monthly'); }
     else if(ACTIVE_TAB==='leads'){
       if(ACTIVE_SUBTAB==='crosssell') area.innerHTML = viewCrossSell();
+      else if(ACTIVE_SUBTAB==='upcoming') area.innerHTML = viewLeadsUpcomingFollowup();
       else if(ACTIVE_SUBTAB==='add') area.innerHTML = viewAddLead();
       else area.innerHTML = viewAllLeads(true);
     }
     else if(ACTIVE_TAB==='connections'){
       if(ACTIVE_SUBTAB==='view') area.innerHTML = viewConnectionsList();
       else if(ACTIVE_SUBTAB==='followup') area.innerHTML = viewConnectionsFollowup();
+      else if(ACTIVE_SUBTAB==='upcomingfollowup') area.innerHTML = viewConnectionsUpcomingFollowup();
+      else if(ACTIVE_SUBTAB==='upcomingmeetings') area.innerHTML = viewConnectionsUpcomingMeetings();
       else area.innerHTML = viewConnectionsAdd();
     }
-    else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='reports'){
       if(ACTIVE_SUBTAB==='weekly') area.innerHTML = viewWeeklyReport();
       else if(ACTIVE_SUBTAB==='monthly') area.innerHTML = viewMonthlyReport();
@@ -1138,6 +1139,10 @@ function viewUpcomingFollowups(){
         <button class="btn btn-ghost btn-sm" data-open-lead="${e.lead.id}">View</button>
       </div>
     </div>`).join('');
+}
+// Same data, just surfaced inside the Leads section for Head instead of a separate top-level tab.
+function viewLeadsUpcomingFollowup(){
+  return viewUpcomingFollowups();
 }
 
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
@@ -1471,8 +1476,23 @@ function viewHeadOverview(){
         </div>
       </div>`).join('')}
 
-  <div class="section-title" style="margin-top:20px;">📅 All Upcoming Meetings</div>
-  <button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin-bottom:12px;">⬇ Export All Meetings (.ics)</button>
+  <div class="section-title" style="margin-top:20px;">📅 Today's Meetings</div>
+  ${(()=>{
+    const t = todayStr();
+    const todayMeetings = collectUpcomingMeetings().filter(m=>m.date===t);
+    if(!todayMeetings.length) return `<div class="empty">No meetings today.</div>`;
+    return todayMeetings.map(m=>`
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(m.name)}</div>
+            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)} · ${m.source==='kitchen'?'Kitchen/Wardrobe':'Connection'}</div>
+            <div class="lead-meta">Today${m.time?`, at <b>${m.time}</b>`:''}</div>
+          </div>
+        </div>
+      </div>`).join('');
+  })()}
+  <button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin:8px 0 12px;">⬇ Export All Meetings (.ics)</button>
 
   <div class="section-title" style="margin-top:20px;">🔔 Your Connections — Meetings Tomorrow</div>
   ${(()=>{
@@ -1485,11 +1505,11 @@ function viewHeadOverview(){
           <div>
             <div class="lead-name">${esc(c.name)}</div>
             <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
-            <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}</b></div>
+            <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b></div>
           </div>
         </div>
         <div class="row-btns">
-          <button class="btn btn-ghost btn-sm goToConnFollowupBtn">Open Connections</button>
+          <button class="btn btn-ghost btn-sm goToConnMeetingsBtn">Open Connections</button>
         </div>
       </div>`).join('');
   })()}
@@ -1611,6 +1631,32 @@ function renderAnalyticsCharts(period){
 }
 
 /* ---------------- Head: Private Connections (never visible to any other role) ---------------- */
+// Rule-based "who to call first" priority scoring — NOT real AI (no model call happens
+// here; this static site has no secure place to hold an API key). It's a simple, explainable
+// heuristic: overdue days count for more, and a few urgency words in past notes bump priority.
+const URGENCY_KEYWORDS = ['urgent','asap','important','emergency','immediately','hot','priority','critical'];
+function urgencyScoreForConnection(c){
+  let score = 0;
+  const t = todayStr();
+  if(c.nextFollowUp && c.nextFollowUp < t){
+    score += Math.floor((new Date(t) - new Date(c.nextFollowUp))/86400000) * 10;
+  }
+  const allText = [c.remarks, ...(c.log||[]).map(l=>l.remarks)].filter(Boolean).join(' ').toLowerCase();
+  URGENCY_KEYWORDS.forEach(k=>{ if(allText.includes(k)) score += 15; });
+  return score;
+}
+function urgencyReasonForConnection(c){
+  const reasons = [];
+  const t = todayStr();
+  if(c.nextFollowUp && c.nextFollowUp < t){
+    const days = Math.floor((new Date(t) - new Date(c.nextFollowUp))/86400000);
+    if(days>0) reasons.push(`${days} day${days>1?'s':''} overdue`);
+  }
+  const allText = [c.remarks, ...(c.log||[]).map(l=>l.remarks)].filter(Boolean).join(' ').toLowerCase();
+  const matched = URGENCY_KEYWORDS.find(k=>allText.includes(k));
+  if(matched) reasons.push(`mentioned "${matched}" in notes`);
+  return reasons.length ? reasons.join(' · ') : 'due today';
+}
 function connectionMeetingDueOrOverdue(c){
   return c.meetingScheduled && c.meetingDate && c.meetingDate<=todayStr();
 }
@@ -1676,22 +1722,61 @@ function viewConnectionsList(){
     🔒 Visible to Heads only — Reception and Sales can never see this. Shared between all Heads.
   </div>
   <div class="section-title" style="margin-top:0;">Your Connections</div>
-  <div class="lead-meta" style="margin-bottom:10px;">Everyone you've saved. Anyone with a follow-up already scheduled also shows up in the Follow-up tab.</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Everyone you've saved. Tap "View Details" on anyone to see their notes and history.</div>
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
-  <div id="connResults">${renderConnectionResults('', undefined, true)}</div>
+  <div id="connResults">${renderConnectionResults('', undefined, true, true)}</div>
   `;
 }
 function viewConnectionsFollowup(){
+  const dueToday = CONNECTIONS.filter(c=>connectionMatchesFilter(c, 'callDueToday'));
+  let priorityHtml = '';
+  if(dueToday.length > 1){
+    const sorted = [...dueToday].sort((a,b)=> urgencyScoreForConnection(b) - urgencyScoreForConnection(a));
+    priorityHtml = `
+    <div class="assign-block" style="border-color:var(--brass);margin-bottom:14px;">
+      <div class="section-title" style="margin:0 0 4px;">🎯 Suggested Call Order</div>
+      <div class="lead-meta" style="margin-bottom:8px;">Rule-based priority (overdue days + urgency keywords in past notes) — not real AI, just a helpful sort.</div>
+      ${sorted.slice(0,5).map((c,i)=>`
+        <div class="log-entry">
+          <div class="meta">${i+1}. <b>${esc(c.name)}</b> — ${urgencyReasonForConnection(c)}</div>
+        </div>`).join('')}
+    </div>`;
+  }
   return `
   <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
     🔒 Visible to Heads only — Reception and Sales can never see this. Shared between all Heads.
   </div>
-  <div class="section-title" style="margin-top:0;">Follow-ups Scheduled</div>
+  <div class="section-title" style="margin-top:0;">Follow-up Calls Due Today</div>
+  ${priorityHtml}
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
-  <div id="connResults">${renderConnectionResults('', 'hasFollowup', false)}</div>
+  <div id="connResults">${renderConnectionResults('', 'callDueToday', false, false)}</div>
   `;
 }
-function connectionCard(c, compact){
+function viewConnectionsUpcomingFollowup(){
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Visible to Heads only — Reception and Sales can never see this. Shared between all Heads.
+  </div>
+  <div class="section-title" style="margin-top:0;">Upcoming Follow-up Calls</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Scheduled for a future date — not due today.</div>
+  <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
+  <div id="connResults">${renderConnectionResults('', 'callUpcoming', false, false)}</div>
+  `;
+}
+function viewConnectionsUpcomingMeetings(){
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Visible to Heads only — Reception and Sales can never see this. Shared between all Heads.
+  </div>
+  <div class="section-title" style="margin-top:0;">Upcoming Meetings</div>
+  <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
+  <div id="connResults">${renderConnectionResults('', 'meetings', false, false)}</div>
+  `;
+}
+function connectionCard(c, opts){
+  opts = opts || {};
+  const compact = opts.compact;
+  const hideDetails = opts.hideDetails;
   const followupForm = `
     <div class="section-title" style="margin:0 0 6px;">Log a Follow-up</div>
     <textarea class="connFollowupRemarks" data-conn="${c.id}" placeholder="What did they say on this call?"></textarea>
@@ -1739,6 +1824,14 @@ function connectionCard(c, compact){
     </div>
     <button class="btn btn-primary btn-sm saveConnEditBtn" data-conn="${c.id}">Save Changes</button>
   `;
+  const detailsBlock = `
+    <div class="log-entry" style="margin-top:8px;"><div class="meta">Initial note</div>${esc(c.remarks)}</div>
+    ${(c.log||[]).slice().reverse().map(l=>`
+      <div class="log-entry">
+        <div class="meta">${fmtDateTime(l.timestamp)}</div>
+        ${esc(l.remarks)} ${l.nextFollowUp?`<div class="meta">Next call: ${fmtDate(l.nextFollowUp)}</div>`:''}
+      </div>`).join('')}
+  `;
   return `
   <div class="card">
     <div class="card-row">
@@ -1752,12 +1845,12 @@ function connectionCard(c, compact){
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
-    <div class="log-entry" style="margin-top:8px;"><div class="meta">Initial note</div>${esc(c.remarks)}</div>
-    ${(c.log||[]).slice().reverse().map(l=>`
-      <div class="log-entry">
-        <div class="meta">${fmtDateTime(l.timestamp)}</div>
-        ${esc(l.remarks)} ${l.nextFollowUp?`<div class="meta">Next call: ${fmtDate(l.nextFollowUp)}</div>`:''}
-      </div>`).join('')}
+    ${hideDetails ? `
+      <div class="row-btns" style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm toggleConnDetailsBtn" data-conn="${c.id}">View Details</button>
+      </div>
+      <div class="hidden" id="connDetails-${c.id}" style="margin-top:4px;">${detailsBlock}</div>
+    ` : detailsBlock}
     ${compact ? `
       <div class="row-btns" style="margin-top:8px;">
         <button class="btn btn-brass btn-sm toggleConnFollowupBtn" data-conn="${c.id}">Log Follow-up</button>
@@ -1782,11 +1875,19 @@ function connectionCard(c, compact){
     `}
   </div>`;
 }
-// filterMode: 'hasFollowup' (Follow-up tab only) or omitted for everyone (All Connections).
-// compact: true renders the card without the follow-up form expanded (All Connections).
-function renderConnectionResults(search, filterMode, compact){
-  let list = [...CONNECTIONS];
-  if(filterMode==='hasFollowup') list = list.filter(c=>connectionHasScheduledPlan(c));
+// filterMode: 'hasFollowup' (any plan), 'callDueToday', 'callUpcoming', 'meetings', or omitted for everyone.
+function connectionMatchesFilter(c, filterMode){
+  const t = todayStr();
+  switch(filterMode){
+    case 'hasFollowup': return connectionHasScheduledPlan(c);
+    case 'callDueToday': return !!(c.nextFollowUp && c.nextFollowUp<=t);
+    case 'callUpcoming': return !!(c.nextFollowUp && c.nextFollowUp>t);
+    case 'meetings': return !!(c.meetingScheduled && c.meetingDate);
+    default: return true;
+  }
+}
+function renderConnectionResults(search, filterMode, compact, hideDetails){
+  let list = CONNECTIONS.filter(c=>connectionMatchesFilter(c, filterMode));
   if(search){
     const s = search.toLowerCase();
     list = list.filter(c=> c.name.toLowerCase().includes(s) || (c.phone||'').includes(s));
@@ -1797,8 +1898,8 @@ function renderConnectionResults(search, filterMode, compact){
     if(da!==db_) return da<db_ ? -1 : 1;
     return b.createdAt.localeCompare(a.createdAt);
   });
-  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode==='hasFollowup' ? 'No follow-ups or meetings scheduled right now.' : 'No connections saved yet — add your first one above.')}</div>`;
-  return list.map(c=>connectionCard(c, compact)).join('');
+  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode ? 'Nothing here right now.' : 'No connections saved yet — add your first one above.')}</div>`;
+  return list.map(c=>connectionCard(c, {compact, hideDetails})).join('');
 }
 function bindConnectionCardHandlers(){
   document.querySelectorAll('.toggleConnFollowupBtn').forEach(btn=>{
@@ -1811,6 +1912,15 @@ function bindConnectionCardHandlers(){
     btn.addEventListener('click', ()=>{
       const form = document.getElementById(`connEditForm-${btn.dataset.conn}`);
       if(form) form.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.toggleConnDetailsBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const details = document.getElementById(`connDetails-${btn.dataset.conn}`);
+      if(details){
+        details.classList.toggle('hidden');
+        btn.textContent = details.classList.contains('hidden') ? 'View Details' : 'Hide Details';
+      }
     });
   });
   document.querySelectorAll('.connEditCity').forEach(cityInput=>{
@@ -3011,6 +3121,13 @@ function bindDynamicHandlers(){
     btn.addEventListener('click', ()=>{
       ACTIVE_TAB = 'connections';
       ACTIVE_SUBTAB = 'followup';
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.goToConnMeetingsBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      ACTIVE_TAB = 'connections';
+      ACTIVE_SUBTAB = 'upcomingmeetings';
       renderApp();
     });
   });

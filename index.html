@@ -1344,23 +1344,50 @@ function viewHeadOverview(){
         </div>
       </div>`).join('')}
 
-  <div class="section-title" style="margin-top:20px;">🔒 Your Connections — Follow-ups Due Today</div>
+  <div class="section-title" style="margin-top:20px;">🔔 Your Connections — Meetings Tomorrow</div>
   ${(()=>{
-    const dueConns = CONNECTIONS.filter(c=>c.nextFollowUp && isDueToday(c.nextFollowUp));
+    const t = tomorrowStr();
+    const tomorrowConns = CONNECTIONS.filter(c=> c.meetingScheduled && c.meetingDate===t);
+    if(!tomorrowConns.length) return `<div class="empty">No meetings scheduled for tomorrow.</div>`;
+    return tomorrowConns.map(c=>`
+      <div class="card" style="border-color:var(--warn);">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(c.name)}</div>
+            <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)}</div>
+            <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}</b></div>
+          </div>
+        </div>
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm goToConnFollowupBtn">Open Connections</button>
+        </div>
+      </div>`).join('');
+  })()}
+
+  <div class="section-title" style="margin-top:20px;">🔒 Your Connections — Due Today</div>
+  ${(()=>{
+    const dueConns = CONNECTIONS.filter(c=> (c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c));
     if(!dueConns.length) return `<div class="empty">Nothing due on your personal connections today.</div>`;
-    return dueConns.map(c=>`
+    return dueConns.map(c=>{
+      const callDue = c.nextFollowUp && isDueToday(c.nextFollowUp);
+      const meetingDue = connectionMeetingDueOrOverdue(c);
+      return `
       <div class="card">
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(c.name)}</div>
             <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
           </div>
-          ${followupBadgeFor(c.nextFollowUp)}
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+            ${callDue ? `<span class="badge badge-followup">Call due</span>` : ''}
+            ${meetingDue ? `<span class="badge badge-align_meeting">Meeting due</span>` : ''}
+          </div>
         </div>
         <div class="row-btns">
           <button class="btn btn-ghost btn-sm goToConnFollowupBtn">Open Connections</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   })()}
   `;
 }
@@ -1454,8 +1481,14 @@ function renderAnalyticsCharts(period){
 }
 
 /* ---------------- Head: Private Connections (never visible to any other role) ---------------- */
+function connectionMeetingDueOrOverdue(c){
+  return c.meetingScheduled && c.meetingDate && c.meetingDate<=todayStr();
+}
+function connectionHasScheduledPlan(c){
+  return !!c.nextFollowUp || (c.meetingScheduled && !!c.meetingDate);
+}
 function connectionsDueTodayCount(){
-  return CONNECTIONS.filter(c=> c.nextFollowUp && isDueToday(c.nextFollowUp)).length;
+  return CONNECTIONS.filter(c=> (c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c)).length;
 }
 function viewConnectionsAdd(){
   return `
@@ -1532,7 +1565,7 @@ function connectionCard(c, compact){
         <div class="lead-name">${esc(c.name)}</div>
         <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
         <div class="lead-meta">Added ${fmtDate(c.createdAt)}</div>
-        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}</b></div>` : ''}
+        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
@@ -1562,18 +1595,18 @@ function connectionCard(c, compact){
 // compact: true renders the card without the follow-up form expanded (All Connections).
 function renderConnectionResults(search, filterMode, compact){
   let list = [...CONNECTIONS];
-  if(filterMode==='hasFollowup') list = list.filter(c=>!!c.nextFollowUp);
+  if(filterMode==='hasFollowup') list = list.filter(c=>connectionHasScheduledPlan(c));
   if(search){
     const s = search.toLowerCase();
     list = list.filter(c=> c.name.toLowerCase().includes(s) || (c.phone||'').includes(s));
   }
   list.sort((a,b)=>{
-    const da = a.nextFollowUp || '9999-99-99';
-    const db_ = b.nextFollowUp || '9999-99-99';
+    const da = a.nextFollowUp || (a.meetingScheduled?a.meetingDate:null) || '9999-99-99';
+    const db_ = b.nextFollowUp || (b.meetingScheduled?b.meetingDate:null) || '9999-99-99';
     if(da!==db_) return da<db_ ? -1 : 1;
     return b.createdAt.localeCompare(a.createdAt);
   });
-  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode==='hasFollowup' ? 'No follow-ups scheduled right now.' : 'No connections saved yet — add your first one above.')}</div>`;
+  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode==='hasFollowup' ? 'No follow-ups or meetings scheduled right now.' : 'No connections saved yet — add your first one above.')}</div>`;
   return list.map(c=>connectionCard(c, compact)).join('');
 }
 function bindConnectionCardHandlers(){

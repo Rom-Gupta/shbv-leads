@@ -1140,9 +1140,24 @@ function viewUpcomingFollowups(){
       </div>
     </div>`).join('');
 }
-// Same data, just surfaced inside the Leads section for Head instead of a separate top-level tab.
+// Same follow-up data, surfaced inside the Leads section for Head — but without the
+// meeting export button, since meetings now have their own home under Connections.
 function viewLeadsUpcomingFollowup(){
-  return viewUpcomingFollowups();
+  const entries = collectUpcomingFollowups();
+  if(!entries.length) return `<div class="empty">No upcoming follow-ups scheduled.</div>`;
+  return entries.map(e=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(e.lead.name)}</div>
+          <div class="lead-meta">${displayPhone(e.lead.phone)}${callIcon(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
+        </div>
+        ${followupBadgeFor(e.date)}
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${e.lead.id}">View</button>
+      </div>
+    </div>`).join('');
 }
 
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */

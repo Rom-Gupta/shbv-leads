@@ -295,6 +295,8 @@ function normalizeConnection(c){
   if(!c.log) c.log = [];
   if(c.nextFollowUp===undefined) c.nextFollowUp = null;
   if(c.occupation===undefined) c.occupation = '';
+  if(c.meetingScheduled===undefined) c.meetingScheduled = false;
+  if(c.meetingDate===undefined) c.meetingDate = null;
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -1461,8 +1463,17 @@ function viewConnectionsAdd(){
     <input type="text" id="connWork" placeholder="e.g. Architect, Contractor, Interior Designer">
     <label>Remarks</label>
     <textarea id="connRemarks" placeholder="What did they need? Any context to remember..."></textarea>
-    <label>Follow-up date (optional — e.g. if they said "call me next week")</label>
+    <label>First call date (optional — when do you want to call them for the first time?)</label>
     <input type="date" id="connNextDate">
+    <label>Is a meeting scheduled?</label>
+    <select id="connMeetingScheduled">
+      <option value="no" selected>No</option>
+      <option value="yes">Yes</option>
+    </select>
+    <div id="connMeetingDateWrap" class="hidden">
+      <label>Meeting date</label>
+      <input type="date" id="connMeetingDate">
+    </div>
     <button class="btn btn-primary btn-full" id="saveConnBtn">Save Connection</button>
   </div>
   `;
@@ -1509,6 +1520,7 @@ function connectionCard(c, compact){
         <div class="lead-name">${esc(c.name)}</div>
         <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
         <div class="lead-meta">Added ${fmtDate(c.createdAt)}</div>
+        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}</b></div>` : ''}
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
@@ -2599,6 +2611,13 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
 
+  const connMeetingSel = document.getElementById('connMeetingScheduled');
+  if(connMeetingSel){
+    connMeetingSel.addEventListener('change', ()=>{
+      document.getElementById('connMeetingDateWrap').classList.toggle('hidden', connMeetingSel.value!=='yes');
+    });
+  }
+
   const saveConnBtn = document.getElementById('saveConnBtn');
   if(saveConnBtn){
     saveConnBtn.addEventListener('click', async ()=>{
@@ -2607,11 +2626,13 @@ function bindDynamicHandlers(){
       const occupation = document.getElementById('connWork').value.trim();
       const remarks = document.getElementById('connRemarks').value.trim();
       const nextDate = document.getElementById('connNextDate').value;
+      const meetingScheduled = document.getElementById('connMeetingScheduled').value==='yes';
+      const meetingDate = meetingScheduled ? document.getElementById('connMeetingDate').value : null;
       if(!name || !phone){ toast('Name and phone are required'); return; }
       CONNECTIONS.push({
         id: uid(), name, phone, occupation, remarks,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
-        nextFollowUp: nextDate || null, log: []
+        nextFollowUp: nextDate || null, meetingScheduled, meetingDate, log: []
       });
       await saveConnections(CONNECTIONS);
       toast('Connection saved');

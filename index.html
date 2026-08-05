@@ -303,6 +303,7 @@ function normalizeConnection(c){
   if(c.occupation===undefined) c.occupation = '';
   if(c.meetingScheduled===undefined) c.meetingScheduled = false;
   if(c.meetingDate===undefined) c.meetingDate = null;
+  if(c.meetingTime===undefined) c.meetingTime = null;
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -479,6 +480,7 @@ function normalizeLead(l){
     if(a.nextFollowUp===undefined) a.nextFollowUp = null;
     if(a.pendingConfirmation===undefined) a.pendingConfirmation = false; // kept for backward-compat with old saved data, no longer used
     if(a.meetingDate===undefined) a.meetingDate = null;
+    if(a.meetingTime===undefined) a.meetingTime = null;
     if(a.pipelineStage===undefined) a.pipelineStage = null;
     if(a.companyReferred===undefined) a.companyReferred = false;
     if(a.companyName===undefined) a.companyName = '';
@@ -788,6 +790,74 @@ function newAssignmentsCountForMe(){
   }));
   return n;
 }
+/* ---------------- Calendar export (.ics) + meeting conflict detection ---------------- */
+function pad2(n){ return String(n).padStart(2,'0'); }
+function icsDateStamp(){
+  const d = new Date();
+  return d.getUTCFullYear()+pad2(d.getUTCMonth()+1)+pad2(d.getUTCDate())+'T'+pad2(d.getUTCHours())+pad2(d.getUTCMinutes())+pad2(d.getUTCSeconds())+'Z';
+}
+function icsEscape(s){ return (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n'); }
+function buildICSEvent({uid, dateStr, timeStr, summary, description}){
+  const [y,m,d] = dateStr.split('-');
+  let dtstartLine, dtendLine;
+  if(timeStr){
+    const [hh,mm] = timeStr.split(':');
+    dtstartLine = `DTSTART:${y}${m}${d}T${hh}${mm}00`;
+    const endHH = pad2((parseInt(hh,10)+1)%24);
+    dtendLine = `DTEND:${y}${m}${d}T${endHH}${mm}00`;
+  } else {
+    dtstartLine = `DTSTART;VALUE=DATE:${y}${m}${d}`;
+    const nd = new Date(dateStr+'T00:00:00'); nd.setDate(nd.getDate()+1);
+    dtendLine = `DTEND;VALUE=DATE:${nd.toISOString().slice(0,10).replace(/-/g,'')}`;
+  }
+  return ['BEGIN:VEVENT', `UID:${uid}@shbv-leads`, `DTSTAMP:${icsDateStamp()}`, dtstartLine, dtendLine,
+    `SUMMARY:${icsEscape(summary)}`, description?`DESCRIPTION:${icsEscape(description)}`:'', 'END:VEVENT'].filter(Boolean).join('\r\n');
+}
+function buildICSCalendar(events){
+  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SHBV Leads//EN', ...events, 'END:VCALENDAR'].join('\r\n');
+}
+function downloadICS(filename, icsText){
+  const blob = new Blob([icsText], {type:'text/calendar'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+// All upcoming meetings this session can see — Kitchen leads (own, or all for Head)
+// plus private Connections (Head only).
+function collectUpcomingMeetings(){
+  const out = [];
+  LEADS.forEach(l=>{
+    (l.assignments||[]).forEach(a=>{
+      if(a.team==='kitchen' && a.pipelineStage==='align_meeting' && a.meetingDate){
+        if(SESSION.role!=='head' && !(a.team===SESSION.role && a.salesperson===SESSION.name)) return;
+        out.push({source:'kitchen', id:a.id, name:l.name, phone:l.phone, date:a.meetingDate, time:a.meetingTime||null, who:a.salesperson});
+      }
+    });
+  });
+  if(SESSION.role==='head'){
+    CONNECTIONS.forEach(c=>{
+      if(c.meetingScheduled && c.meetingDate){
+        out.push({source:'connection', id:c.id, name:c.name, phone:c.phone, date:c.meetingDate, time:c.meetingTime||null, who:SESSION.name});
+      }
+    });
+  }
+  return out.sort((x,y)=> (x.date+ (x.time||'')).localeCompare(y.date+(y.time||'')));
+}
+// Same-day (and same-time, if both known) conflicts against everything this session can see.
+function findMeetingConflicts(dateStr, timeStr, excludeId){
+  if(!dateStr) return [];
+  return collectUpcomingMeetings().filter(m=> m.date===dateStr && m.id!==excludeId);
+}
+function meetingConflictWarningHtml(conflicts, timeStr){
+  if(!conflicts.length) return '';
+  const exactClash = timeStr ? conflicts.filter(c=>c.time===timeStr) : [];
+  const lines = conflicts.map(c=> `${esc(c.name)}${c.time?` at ${c.time}`:' (no time set)'}`).join(', ');
+  return `<div class="lead-meta" style="margin:-4px 0 10px;padding:8px 12px;border-radius:8px;font-weight:600;background:${exactClash.length?'var(--bad-bg)':'var(--warn-bg)'};color:${exactClash.length?'var(--bad)':'var(--warn)'};">
+    ${exactClash.length ? '⚠ Exact time clash' : '⚠ Also on this day'} with: ${lines}
+  </div>`;
+}
 function tomorrowStr(){
   const d = new Date(); d.setDate(d.getDate()+1);
   return d.toISOString().slice(0,10);
@@ -997,8 +1067,10 @@ function collectUpcomingFollowups(){
 }
 function viewUpcomingFollowups(){
   const entries = collectUpcomingFollowups();
-  if(!entries.length) return `<div class="empty">No upcoming follow-ups scheduled.</div>`;
-  return entries.map(e=>`
+  const meetingCount = collectUpcomingMeetings().length;
+  const exportBtnHtml = meetingCount ? `<button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin-bottom:12px;">⬇ Export ${meetingCount} Meeting${meetingCount>1?'s':''} (.ics)</button>` : '';
+  if(!entries.length) return exportBtnHtml + `<div class="empty">No upcoming follow-ups scheduled.</div>`;
+  return exportBtnHtml + entries.map(e=>`
     <div class="card">
       <div class="card-row">
         <div>
@@ -1344,6 +1416,9 @@ function viewHeadOverview(){
         </div>
       </div>`).join('')}
 
+  <div class="section-title" style="margin-top:20px;">📅 All Upcoming Meetings</div>
+  <button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin-bottom:12px;">⬇ Export All Meetings (.ics)</button>
+
   <div class="section-title" style="margin-top:20px;">🔔 Your Connections — Meetings Tomorrow</div>
   ${(()=>{
     const t = tomorrowStr();
@@ -1518,6 +1593,9 @@ function viewConnectionsAdd(){
     <div id="connMeetingDateWrap" class="hidden">
       <label>Meeting date</label>
       <input type="date" id="connMeetingDate">
+      <label>Meeting time (optional)</label>
+      <input type="time" id="connMeetingTime">
+      <div id="connMeetingConflictWarning"></div>
     </div>
     <button class="btn btn-primary btn-full" id="saveConnBtn">Save Connection</button>
   </div>
@@ -1565,7 +1643,8 @@ function connectionCard(c, compact){
         <div class="lead-name">${esc(c.name)}</div>
         <div class="lead-meta">${esc(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
         <div class="lead-meta">Added ${fmtDate(c.createdAt)}</div>
-        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
+        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
+        ${c.meetingScheduled && c.meetingDate ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="connection" data-id="${c.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
@@ -2489,7 +2568,8 @@ function renderLeadDetail(lead, focusAssignId, mode){
             ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
           </div>
         </div>
-        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}`:''}</div>
+        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}${a.meetingTime?` at ${a.meetingTime}`:''}`:''}</div>
+        ${a.meetingDate && a.pipelineStage==='align_meeting' ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="kitchen" data-id="${a.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
         ${a.companyReferred ? `<div class="lead-meta" style="margin-top:2px;">🏢 Via company: <b>${esc(a.companyName||'—')}</b>${a.companyPersonName?` (${esc(a.companyPersonName)})`:''}</div>` : ''}
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
         ${(a.log||[]).slice().reverse().map(log=>{
@@ -2519,6 +2599,9 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <div class="assignMeetingDateWrap-${a.id}" ${a.pipelineStage==='align_meeting'?'':'style="display:none;"'}>
               <label>Meeting date</label>
               <input type="date" class="assignMeetingDateInput" data-assign="${a.id}" value="${a.meetingDate||todayStr()}">
+              <label>Meeting time (optional)</label>
+              <input type="time" class="assignMeetingTimeInput" data-assign="${a.id}" value="${a.meetingTime||''}">
+              <div class="assignMeetingConflictWarning-${a.id}"></div>
             </div>` : ''}
             <label>Product (if decided)</label>
             <input type="text" class="assignProductInput" data-assign="${a.id}" value="${esc(a.product||'')}" placeholder="e.g. Kohler sanitaryware">
@@ -2645,6 +2728,31 @@ function bindDeleteLeadCardButtons(){
   });
 }
 
+function bindCalendarButtons(){
+  document.querySelectorAll('.addToCalendarBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const source = btn.dataset.source, id = btn.dataset.id;
+      let event;
+      if(source==='kitchen'){
+        let found=null;
+        LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{ if(a.id===id) found={lead:l,a}; }));
+        if(!found) return;
+        event = buildICSEvent({uid:id, dateStr:found.a.meetingDate, timeStr:found.a.meetingTime||null,
+          summary:`Meeting: ${found.lead.name} (Kitchen/Wardrobe)`,
+          description:`Salesperson: ${found.a.salesperson}\nPhone: ${found.lead.phone}`});
+      } else {
+        const c = CONNECTIONS.find(x=>x.id===id);
+        if(!c) return;
+        event = buildICSEvent({uid:id, dateStr:c.meetingDate, timeStr:c.meetingTime||null,
+          summary:`Meeting: ${c.name} (Connection)`,
+          description:`Occupation: ${c.occupation||'-'}\nPhone: ${c.phone}`});
+      }
+      downloadICS(`meeting-${id}.ics`, buildICSCalendar([event]));
+      toast('Calendar file downloaded — open it to add to your calendar app');
+    });
+  });
+}
+
 function bindDynamicHandlers(){
   document.querySelectorAll('[data-open-lead]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -2655,13 +2763,42 @@ function bindDynamicHandlers(){
     });
   });
   bindDeleteLeadCardButtons();
+  bindCalendarButtons();
+
+  const exportAllMeetingsBtn = document.getElementById('exportAllMeetingsBtn');
+  if(exportAllMeetingsBtn){
+    exportAllMeetingsBtn.addEventListener('click', ()=>{
+      const meetings = collectUpcomingMeetings();
+      if(!meetings.length){ toast('No meetings to export'); return; }
+      const events = meetings.map(m=> buildICSEvent({
+        uid: m.id, dateStr: m.date, timeStr: m.time,
+        summary: `Meeting: ${m.name} (${m.source==='kitchen'?'Kitchen/Wardrobe':'Connection'})`,
+        description: `${m.source==='kitchen'?'Salesperson':'With'}: ${m.who}\nPhone: ${m.phone}`
+      }));
+      downloadICS('shbv-meetings.ics', buildICSCalendar(events));
+      toast(`${meetings.length} meeting${meetings.length>1?'s':''} exported — open the file to add them to your calendar`);
+    });
+  }
 
   const connMeetingSel = document.getElementById('connMeetingScheduled');
   if(connMeetingSel){
     connMeetingSel.addEventListener('change', ()=>{
       document.getElementById('connMeetingDateWrap').classList.toggle('hidden', connMeetingSel.value!=='yes');
+      checkConnMeetingConflict();
     });
   }
+  function checkConnMeetingConflict(){
+    const dateEl = document.getElementById('connMeetingDate');
+    const timeEl = document.getElementById('connMeetingTime');
+    const warnEl = document.getElementById('connMeetingConflictWarning');
+    if(!dateEl || !warnEl) return;
+    const conflicts = findMeetingConflicts(dateEl.value, timeEl?timeEl.value:null, null);
+    warnEl.innerHTML = meetingConflictWarningHtml(conflicts, timeEl?timeEl.value:null);
+  }
+  const connMeetingDateEl = document.getElementById('connMeetingDate');
+  const connMeetingTimeEl = document.getElementById('connMeetingTime');
+  if(connMeetingDateEl) connMeetingDateEl.addEventListener('change', checkConnMeetingConflict);
+  if(connMeetingTimeEl) connMeetingTimeEl.addEventListener('change', checkConnMeetingConflict);
 
   const saveConnBtn = document.getElementById('saveConnBtn');
   if(saveConnBtn){
@@ -2673,11 +2810,12 @@ function bindDynamicHandlers(){
       const nextDate = document.getElementById('connNextDate').value;
       const meetingScheduled = document.getElementById('connMeetingScheduled').value==='yes';
       const meetingDate = meetingScheduled ? document.getElementById('connMeetingDate').value : null;
+      const meetingTime = meetingScheduled ? (document.getElementById('connMeetingTime').value || null) : null;
       if(!name || !phone){ toast('Name and phone are required'); return; }
       CONNECTIONS.push({
         id: uid(), name, phone, occupation, remarks,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
-        nextFollowUp: nextDate || null, meetingScheduled, meetingDate, log: []
+        nextFollowUp: nextDate || null, meetingScheduled, meetingDate, meetingTime, log: []
       });
       await saveConnections(CONNECTIONS);
       toast('Connection saved');
@@ -2912,6 +3050,7 @@ function bindDynamicHandlers(){
 
 function bindModalHandlers(lead){
   document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+  bindCalendarButtons();
 
   document.querySelectorAll('#modalBox [data-open-lead]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -2927,8 +3066,20 @@ function bindModalHandlers(lead){
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`.assignMeetingDateWrap-${sel.dataset.assign}`);
       if(wrap) wrap.style.display = sel.value==='align_meeting' ? 'block' : 'none';
+      checkAssignMeetingConflict(sel.dataset.assign);
     });
   });
+  document.querySelectorAll('.assignMeetingDateInput, .assignMeetingTimeInput').forEach(el=>{
+    el.addEventListener('change', ()=> checkAssignMeetingConflict(el.dataset.assign));
+  });
+  function checkAssignMeetingConflict(assignId){
+    const dateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${assignId}"]`);
+    const timeEl = document.querySelector(`.assignMeetingTimeInput[data-assign="${assignId}"]`);
+    const warnEl = document.querySelector(`.assignMeetingConflictWarning-${assignId}`);
+    if(!dateEl || !warnEl) return;
+    const conflicts = findMeetingConflicts(dateEl.value, timeEl?timeEl.value:null, assignId);
+    warnEl.innerHTML = meetingConflictWarningHtml(conflicts, timeEl?timeEl.value:null);
+  }
 
   document.querySelectorAll('.assignCompanyReferredSel').forEach(sel=>{
     sel.addEventListener('change', ()=>{
@@ -3021,7 +3172,9 @@ function bindModalHandlers(lead){
         a.pipelineStage = pipelineSelEl.value || null;
         if(a.pipelineStage==='align_meeting'){
           const meetingDateEl = document.querySelector(`.assignMeetingDateInput[data-assign="${aid}"]`);
+          const meetingTimeEl = document.querySelector(`.assignMeetingTimeInput[data-assign="${aid}"]`);
           a.meetingDate = meetingDateEl ? meetingDateEl.value : null;
+          a.meetingTime = meetingTimeEl ? (meetingTimeEl.value || null) : null;
         }
       }
       const companyReferredSel = document.querySelector(`.assignCompanyReferredSel[data-assign="${aid}"]`);

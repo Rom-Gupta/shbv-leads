@@ -915,6 +915,14 @@ function findMeetingConflicts(dateStr, timeStr, excludeId){
   if(!dateStr) return [];
   return collectUpcomingMeetings().filter(m=> m.date===dateStr && m.id!==excludeId);
 }
+// Scoped narrowly for Reception scheduling a meeting on the Head's behalf — checks
+// only against the Head's existing connection meetings (what they'll actually attend),
+// without giving Reception's session broader access to the full meetings list elsewhere.
+function findConnectionMeetingConflicts(dateStr, excludeId){
+  if(!dateStr) return [];
+  return CONNECTIONS.filter(c=> c.id!==excludeId && c.meetingScheduled && c.meetingDate===dateStr)
+    .map(c=>({name:c.name, time:c.meetingTime||null}));
+}
 function meetingConflictWarningHtml(conflicts, timeStr){
   if(!conflicts.length) return '';
   const exactClash = timeStr ? conflicts.filter(c=>c.time===timeStr) : [];
@@ -1831,6 +1839,7 @@ function receptionConnCallForm(c){
         <input type="date" class="recpConnMeetingDate" data-conn="${c.id}" value="${todayStr()}">
         <label>Meeting time (optional)</label>
         <input type="time" class="recpConnMeetingTime" data-conn="${c.id}">
+        <div class="recpConnMeetingConflict-${c.id}"></div>
       </div>
       <button class="btn btn-brass btn-sm saveRecpConnCallBtn" data-conn="${c.id}">Save Call</button>
     </div>`;
@@ -3206,8 +3215,20 @@ function bindDynamicHandlers(){
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`.recpConnMeetingWrap-${sel.dataset.conn}`);
       if(wrap) wrap.style.display = sel.value==='yes' ? 'block' : 'none';
+      checkRecpConnMeetingConflict(sel.dataset.conn);
     });
   });
+  document.querySelectorAll('.recpConnMeetingDate, .recpConnMeetingTime').forEach(el=>{
+    el.addEventListener('change', ()=> checkRecpConnMeetingConflict(el.dataset.conn));
+  });
+  function checkRecpConnMeetingConflict(connId){
+    const dateEl = document.querySelector(`.recpConnMeetingDate[data-conn="${connId}"]`);
+    const timeEl = document.querySelector(`.recpConnMeetingTime[data-conn="${connId}"]`);
+    const warnEl = document.querySelector(`.recpConnMeetingConflict-${connId}`);
+    if(!dateEl || !warnEl) return;
+    const conflicts = findConnectionMeetingConflicts(dateEl.value, connId);
+    warnEl.innerHTML = meetingConflictWarningHtml(conflicts, timeEl?timeEl.value:null);
+  }
   document.querySelectorAll('.saveRecpConnCallBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.dataset.conn;

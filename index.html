@@ -1720,7 +1720,7 @@ function connectionHasScheduledPlan(c){
   return !!c.nextFollowUp || (c.meetingScheduled && !!c.meetingDate);
 }
 function connectionsDueTodayCount(){
-  return CONNECTIONS.filter(c=> (c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c)).length;
+  return CONNECTIONS.filter(c=> !c.assignedToReception && ((c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c))).length;
 }
 // Scoped to just what THIS head added — used for personal push notifications, so
 // heads aren't pinged for each other's connections, only their own.
@@ -1894,6 +1894,14 @@ function viewConnectionsSentToReception(){
           <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
           <div class="lead-meta">Sent to <b>${esc(c.assignedToPerson||'—')}</b></div>
           ${c.assignmentNote ? `<div class="lead-meta">Note: "${esc(c.assignmentNote)}"</div>` : ''}
+          ${(()=>{
+            const lastLog = c.log && c.log.length ? c.log[c.log.length-1] : null;
+            if(!lastLog) return `<div class="lead-meta" style="margin-top:4px;color:var(--warn);">No call logged yet.</div>`;
+            return `<div class="lead-meta" style="margin-top:4px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+              Latest: <b>${esc(lastLog.author||'')}</b> · ${fmtDateTime(lastLog.timestamp)} — ${esc(lastLog.remarks)}
+              ${lastLog.nextFollowUp?` (next call: ${fmtDate(lastLog.nextFollowUp)})`:''}
+            </div>`;
+          })()}
         </div>
       </div>
       <div class="row-btns" style="margin-top:8px;">
@@ -2024,7 +2032,7 @@ function connectionCard(c, opts){
 // filterMode: 'hasFollowup' (any plan), 'callDueToday', 'callUpcoming', 'meetings', or omitted for everyone.
 function connectionMatchesFilter(c, filterMode){
   const t = todayStr();
-  if(c.assignedToReception && (filterMode==='callDueToday' || filterMode==='callUpcoming')) return false;
+  if(c.assignedToReception && filterMode==='callDueToday') return false;
   switch(filterMode){
     case 'hasFollowup': return connectionHasScheduledPlan(c);
     case 'callDueToday': return !!(c.nextFollowUp && c.nextFollowUp<=t);

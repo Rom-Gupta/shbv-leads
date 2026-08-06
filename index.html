@@ -582,6 +582,13 @@ function findLeadsByPhone(phone){
 }
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }
+function fmtTime12(t){
+  if(!t) return '';
+  const [hh,mm] = t.split(':').map(Number);
+  const period = hh>=12 ? 'PM' : 'AM';
+  const h12 = hh%12===0 ? 12 : hh%12;
+  return `${h12}:${String(mm).padStart(2,'0')} ${period}`;
+}
 function isDueToday(dateStr){ if(!dateStr) return false; return dateStr <= todayStr(); }
 function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function bindCityAutocompleteEls(stateSel, cityInput, suggestions){
@@ -1502,7 +1509,7 @@ function viewHeadOverview(){
           <div>
             <div class="lead-name">${esc(m.name)}</div>
             <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)} · ${m.source==='kitchen'?'Kitchen/Wardrobe':'Connection'}</div>
-            <div class="lead-meta">Today${m.time?`, at <b>${m.time}</b>`:''}</div>
+            <div class="lead-meta">Today${m.time?`, at <b>${fmtTime12(m.time)}</b>`:''}</div>
           </div>
         </div>
       </div>`).join('');
@@ -1520,7 +1527,7 @@ function viewHeadOverview(){
           <div>
             <div class="lead-name">${esc(c.name)}</div>
             <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
-            <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b></div>
+            <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>
           </div>
         </div>
         <div class="row-btns">
@@ -1855,7 +1862,7 @@ function connectionCard(c, opts){
         <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
         ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
         <div class="lead-meta">Added ${fmtDate(c.createdAt)} by <b>${esc(c.createdBy||'—')}</b></div>
-        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${c.meetingTime}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
+        ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
         ${c.meetingScheduled && c.meetingDate ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="connection" data-id="${c.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
@@ -2863,7 +2870,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
           </div>
         </div>
-        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}${a.meetingTime?` at ${a.meetingTime}`:''}`:''}</div>
+        <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}${a.meetingTime?` at ${fmtTime12(a.meetingTime)}`:''}`:''}</div>
         ${a.meetingDate && a.pipelineStage==='align_meeting' ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="kitchen" data-id="${a.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
         ${a.companyReferred ? `<div class="lead-meta" style="margin-top:2px;">🏢 Via company: <b>${esc(a.companyName||'—')}</b>${a.companyPersonName?` (${esc(a.companyPersonName)})`:''}</div>` : ''}
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}

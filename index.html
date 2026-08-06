@@ -1831,14 +1831,14 @@ function receptionConnCallForm(c){
       </div>
       <label>Is a meeting scheduled?</label>
       <select class="recpConnMeetingSel" data-conn="${c.id}">
-        <option value="no" selected>No</option>
-        <option value="yes">Yes</option>
+        <option value="no" ${!c.meetingScheduled?'selected':''}>No</option>
+        <option value="yes" ${c.meetingScheduled?'selected':''}>Yes</option>
       </select>
-      <div class="recpConnMeetingWrap-${c.id}" style="display:none;">
+      <div class="recpConnMeetingWrap-${c.id}" ${c.meetingScheduled?'':'style="display:none;"'}>
         <label>Meeting date</label>
-        <input type="date" class="recpConnMeetingDate" data-conn="${c.id}" value="${todayStr()}">
+        <input type="date" class="recpConnMeetingDate" data-conn="${c.id}" value="${c.meetingDate||todayStr()}">
         <label>Meeting time (optional)</label>
-        <input type="time" class="recpConnMeetingTime" data-conn="${c.id}">
+        <input type="time" class="recpConnMeetingTime" data-conn="${c.id}" value="${c.meetingTime||''}">
         <div class="recpConnMeetingConflict-${c.id}"></div>
       </div>
       <button class="btn btn-brass btn-sm saveRecpConnCallBtn" data-conn="${c.id}">Save Call</button>
@@ -1856,6 +1856,7 @@ function viewReceptionConnectionCalls(){
           <div class="lead-name">${esc(c.name)}</div>
           <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
           ${c.assignmentNote ? `<div class="lead-meta">Note from Head: "${esc(c.assignmentNote)}"</div>` : ''}
+          ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta" style="margin-top:4px;padding:6px 10px;background:var(--warn-bg);color:var(--warn);border-radius:8px;">📅 Meeting already scheduled: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>` : ''}
         </div>
       </div>
       ${receptionConnCallForm(c)}

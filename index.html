@@ -1006,7 +1006,7 @@ function tabsFor(role){
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>myConnectionsDueTodayCount(),
-      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
+      sub:[{id:'add', label:'Add Connection'}, {id:'my', label:'My Connections'}, {id:'all', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
@@ -1082,7 +1082,8 @@ async function renderApp(){
       else area.innerHTML = viewAllLeads(true);
     }
     else if(ACTIVE_TAB==='connections'){
-      if(ACTIVE_SUBTAB==='view') area.innerHTML = viewConnectionsList();
+      if(ACTIVE_SUBTAB==='my') area.innerHTML = viewConnectionsList();
+      else if(ACTIVE_SUBTAB==='all') area.innerHTML = viewAllConnectionsShared();
       else if(ACTIVE_SUBTAB==='followup') area.innerHTML = viewConnectionsFollowup();
       else if(ACTIVE_SUBTAB==='upcomingfollowup') area.innerHTML = viewConnectionsUpcomingFollowup();
       else if(ACTIVE_SUBTAB==='upcomingmeetings') area.innerHTML = viewConnectionsUpcomingMeetings();
@@ -1772,15 +1773,44 @@ function viewConnectionsAdd(){
   </div>
   `;
 }
+// Shared across all Heads — deliberately minimal fields only. No remarks, no call
+// history, no follow-up/meeting info. Just enough to know who's already a contact
+// and avoid duplicate outreach, without exposing anyone's private follow-up work.
+function renderAllConnectionsSharedResults(search){
+  let list = [...CONNECTIONS];
+  if(search){
+    const s = search.toLowerCase();
+    list = list.filter(c=> c.name.toLowerCase().includes(s) || (c.phone||'').includes(s));
+  }
+  list.sort((a,b)=> a.name.localeCompare(b.name));
+  if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : 'No connections saved yet.'}</div>`;
+  return list.map(c=>`
+    <div class="card">
+      <div class="lead-name">${esc(c.name)}</div>
+      <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
+      <div class="lead-meta">${esc(c.occupation||'—')}</div>
+      ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
+    </div>`).join('');
+}
+function viewAllConnectionsShared(){
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Visible to Heads only. Shared directory of every connection across all Heads — name, number, occupation, and city only. No follow-up details, notes, or call history are shown here.
+  </div>
+  <div class="section-title" style="margin-top:0;">All Connections (All Heads)</div>
+  <div class="searchbar"><input type="text" id="allConnSearchBox" placeholder="Search by name or phone..."></div>
+  <div id="allConnResults">${renderAllConnectionsSharedResults('')}</div>
+  `;
+}
 function viewConnectionsList(){
   return `
   <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
-    🔒 Visible to Heads only — Reception and Sales can never see this. Shared between all Heads.
+    🔒 Visible to Heads only — Reception and Sales can never see this. Private to you — other Heads don't see your follow-ups here.
   </div>
-  <div class="section-title" style="margin-top:0;">Your Connections</div>
-  <div class="lead-meta" style="margin-bottom:10px;">Everyone you've saved. Tap "View Details" on anyone to see their notes and history.</div>
+  <div class="section-title" style="margin-top:0;">My Connections</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Everyone you've personally saved. Tap "View Details" on anyone to see their notes and history.</div>
   <div class="searchbar"><input type="text" id="connSearchBox" placeholder="Search by name or phone..."></div>
-  <div id="connResults">${renderConnectionResults('', undefined, true, true)}</div>
+  <div id="connResults">${renderConnectionResults('', 'mine', true, true)}</div>
   `;
 }
 function viewConnectionsFollowup(){
@@ -2032,12 +2062,13 @@ function connectionCard(c, opts){
 // filterMode: 'hasFollowup' (any plan), 'callDueToday', 'callUpcoming', 'meetings', or omitted for everyone.
 function connectionMatchesFilter(c, filterMode){
   const t = todayStr();
-  // Follow-up, Upcoming Follow-up, and Upcoming Meetings are each Head's own private
-  // radar — one Head's follow-ups/meetings are never surfaced to another Head. They
-  // can still see everyone in All Connections and open full details from there.
-  if((filterMode==='callDueToday' || filterMode==='callUpcoming' || filterMode==='meetings') && c.createdBy!==SESSION.name) return false;
+  // Follow-up, Upcoming Follow-up, Upcoming Meetings, and My Connections are each
+  // Head's own private radar — one Head's stuff is never surfaced to another Head.
+  // They can still see everyone in the shared All Connections directory.
+  if((filterMode==='callDueToday' || filterMode==='callUpcoming' || filterMode==='meetings' || filterMode==='mine') && c.createdBy!==SESSION.name) return false;
   if(c.assignedToReception && filterMode==='callDueToday') return false;
   switch(filterMode){
+    case 'mine': return true;
     case 'hasFollowup': return connectionHasScheduledPlan(c);
     case 'callDueToday': return !!(c.nextFollowUp && c.nextFollowUp<=t);
     case 'callUpcoming': return !!(c.nextFollowUp && c.nextFollowUp>t);
@@ -3357,21 +3388,33 @@ function bindDynamicHandlers(){
       });
       await saveConnections(CONNECTIONS);
       toast('Connection saved');
-      ACTIVE_SUBTAB = nextDate ? 'followup' : 'view';
+      ACTIVE_SUBTAB = nextDate ? 'followup' : 'my';
       renderApp();
     });
   }
 
   const connSearchBox = document.getElementById('connSearchBox');
   if(connSearchBox){
-    const connFilterMode = ACTIVE_SUBTAB==='followup' ? 'hasFollowup' : undefined;
-    const connCompact = ACTIVE_SUBTAB!=='followup';
+    const modeMap = {
+      my: ['mine', true, true],
+      followup: ['callDueToday', false, false],
+      upcomingfollowup: ['callUpcoming', false, false],
+      upcomingmeetings: ['meetings', false, false]
+    };
+    const [connFilterMode, connCompact, connHideDetails] = modeMap[ACTIVE_SUBTAB] || [undefined, true, true];
     connSearchBox.addEventListener('input', ()=>{
-      document.getElementById('connResults').innerHTML = renderConnectionResults(connSearchBox.value, connFilterMode, connCompact);
+      document.getElementById('connResults').innerHTML = renderConnectionResults(connSearchBox.value, connFilterMode, connCompact, connHideDetails);
       bindConnectionCardHandlers();
     });
   }
   bindConnectionCardHandlers();
+
+  const allConnSearchBox = document.getElementById('allConnSearchBox');
+  if(allConnSearchBox){
+    allConnSearchBox.addEventListener('input', ()=>{
+      document.getElementById('allConnResults').innerHTML = renderAllConnectionsSharedResults(allConnSearchBox.value);
+    });
+  }
 
   document.querySelectorAll('.goToConnFollowupBtn').forEach(btn=>{
     btn.addEventListener('click', ()=>{

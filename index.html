@@ -904,7 +904,7 @@ function collectUpcomingMeetings(){
   });
   if(SESSION.role==='head'){
     CONNECTIONS.forEach(c=>{
-      if(c.meetingScheduled && c.meetingDate){
+      if(c.meetingScheduled && c.meetingDate && c.createdBy===SESSION.name){
         out.push({source:'connection', id:c.id, name:c.name, phone:c.phone, date:c.meetingDate, time:c.meetingTime||null, who:SESSION.name});
       }
     });
@@ -1005,8 +1005,8 @@ function tabsFor(role){
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
-    {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
-      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception).length}]},
+    {id:'connections', label:'Connections', badge:()=>myConnectionsDueTodayCount(),
+      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
@@ -1879,7 +1879,7 @@ function viewReceptionConnectionCalls(mode){
   `;
 }
 function viewConnectionsSentToReception(){
-  const list = receptionAssignedConnections();
+  const list = receptionAssignedConnections().filter(c=>c.assignedByHead===SESSION.name);
   return `
   <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
     🔒 Visible to Heads only. Reception can only see the specific people listed here — nothing else from your Connections.
@@ -2032,6 +2032,10 @@ function connectionCard(c, opts){
 // filterMode: 'hasFollowup' (any plan), 'callDueToday', 'callUpcoming', 'meetings', or omitted for everyone.
 function connectionMatchesFilter(c, filterMode){
   const t = todayStr();
+  // Follow-up, Upcoming Follow-up, and Upcoming Meetings are each Head's own private
+  // radar — one Head's follow-ups/meetings are never surfaced to another Head. They
+  // can still see everyone in All Connections and open full details from there.
+  if((filterMode==='callDueToday' || filterMode==='callUpcoming' || filterMode==='meetings') && c.createdBy!==SESSION.name) return false;
   if(c.assignedToReception && filterMode==='callDueToday') return false;
   switch(filterMode){
     case 'hasFollowup': return connectionHasScheduledPlan(c);

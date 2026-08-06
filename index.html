@@ -308,6 +308,7 @@ function normalizeConnection(c){
   if(c.city===undefined) c.city = '';
   if(c.assignedToReception===undefined) c.assignedToReception = false;
   if(c.assignmentNote===undefined) c.assignmentNote = '';
+  if(c.assignedToPerson===undefined) c.assignedToPerson = '';
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -983,7 +984,7 @@ function tabsFor(role){
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
     {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
-    {id:'connectioncalls', label:'Connection Calls', badge:()=>receptionAssignedConnections().length},
+    {id:'connectioncalls', label:'Connection Calls', badge:()=>receptionAssignedConnectionsForMe().length},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'all', label:'All Leads'},
@@ -1690,6 +1691,9 @@ function connectionMeetingDueOrOverdue(c){
 function receptionAssignedConnections(){
   return CONNECTIONS.filter(c=>c.assignedToReception);
 }
+function receptionAssignedConnectionsForMe(){
+  return CONNECTIONS.filter(c=>c.assignedToReception && c.assignedToPerson===SESSION.name);
+}
 function connectionHasScheduledPlan(c){
   return !!c.nextFollowUp || (c.meetingScheduled && !!c.meetingDate);
 }
@@ -1832,7 +1836,7 @@ function receptionConnCallForm(c){
     </div>`;
 }
 function viewReceptionConnectionCalls(){
-  const list = receptionAssignedConnections();
+  const list = receptionAssignedConnectionsForMe();
   return `
   <div class="section-title" style="margin-top:0;">Connection Calls</div>
   <div class="lead-meta" style="margin-bottom:10px;">Calls your Head has asked you to make. Log what happens, and it goes straight back to them.</div>
@@ -1863,6 +1867,7 @@ function viewConnectionsSentToReception(){
         <div>
           <div class="lead-name">${esc(c.name)}</div>
           <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+          <div class="lead-meta">Sent to <b>${esc(c.assignedToPerson||'—')}</b></div>
           ${c.assignmentNote ? `<div class="lead-meta">Note: "${esc(c.assignmentNote)}"</div>` : ''}
         </div>
       </div>
@@ -1944,8 +1949,18 @@ function connectionCard(c, opts){
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
-    ${c.assignedToReception ? `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">📞 Sent to Reception to call${c.assignmentNote?`: "${esc(c.assignmentNote)}"`:''}</div>` :
-      `<button class="btn btn-ghost btn-sm sendToReceptionBtn" data-conn="${c.id}" style="margin-top:6px;">📞 Send to Reception</button>`}
+    ${c.assignedToReception ? `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">📞 Sent to <b>${esc(c.assignedToPerson||'Reception')}</b> to call${c.assignmentNote?`: "${esc(c.assignmentNote)}"`:''}</div>` : `
+      <button class="btn btn-ghost btn-sm toggleSendToReceptionBtn" data-conn="${c.id}" style="margin-top:6px;">📞 Send to Reception</button>
+      <div class="assign-block hidden" id="sendToReceptionForm-${c.id}" style="margin-top:8px;">
+        <label>Send to</label>
+        <select class="sendToReceptionPersonSel" data-conn="${c.id}">
+          ${(STAFF.reception||[]).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <label>Note (optional)</label>
+        <textarea class="sendToReceptionNote" data-conn="${c.id}" placeholder="e.g. please try to fix a meeting this week"></textarea>
+        <button class="btn btn-brass btn-sm confirmSendToReceptionBtn" data-conn="${c.id}">Confirm Send</button>
+      </div>
+    `}
     ${hideDetails ? `
       <div class="row-btns" style="margin-top:8px;">
         <button class="btn btn-ghost btn-sm toggleConnDetailsBtn" data-conn="${c.id}">View Details</button>
@@ -2004,16 +2019,25 @@ function renderConnectionResults(search, filterMode, compact, hideDetails){
   return list.map(c=>connectionCard(c, {compact, hideDetails})).join('');
 }
 function bindConnectionCardHandlers(){
-  document.querySelectorAll('.sendToReceptionBtn').forEach(btn=>{
+  document.querySelectorAll('.toggleSendToReceptionBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const form = document.getElementById(`sendToReceptionForm-${btn.dataset.conn}`);
+      if(form) form.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.confirmSendToReceptionBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      const c = CONNECTIONS.find(x=>x.id===btn.dataset.conn);
+      const id = btn.dataset.conn;
+      const c = CONNECTIONS.find(x=>x.id===id);
       if(!c) return;
-      const note = prompt(`Any note for Reception about calling ${c.name}? (optional — e.g. "please try to fix a meeting this week")`);
-      if(note===null) return; // cancelled
+      const personSel = document.querySelector(`.sendToReceptionPersonSel[data-conn="${id}"]`);
+      if(!personSel || !personSel.value){ toast('No Reception logins exist yet — add one under Manage Logins first'); return; }
+      const note = document.querySelector(`.sendToReceptionNote[data-conn="${id}"]`).value.trim();
       c.assignedToReception = true;
-      c.assignmentNote = note.trim();
+      c.assignedToPerson = personSel.value;
+      c.assignmentNote = note;
       await saveConnections(CONNECTIONS);
-      toast(`Sent ${c.name} to Reception`);
+      toast(`Sent ${c.name} to ${personSel.value}`);
       renderApp();
     });
   });
@@ -2024,6 +2048,7 @@ function bindConnectionCardHandlers(){
       if(!confirm(`Take this back from Reception? They'll no longer see ${c.name} on their list.`)) return;
       c.assignedToReception = false;
       c.assignmentNote = '';
+      c.assignedToPerson = '';
       await saveConnections(CONNECTIONS);
       toast('Taken back');
       renderApp();
@@ -3204,6 +3229,7 @@ function bindDynamicHandlers(){
       c.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, nextFollowUp:c.nextFollowUp});
       c.assignedToReception = false;
       c.assignmentNote = '';
+      c.assignedToPerson = '';
       await saveConnections(CONNECTIONS);
       toast(`Call logged for ${c.name} — sent back to Head`);
       renderApp();

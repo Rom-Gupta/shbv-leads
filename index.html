@@ -1858,6 +1858,7 @@ function viewReceptionConnectionCalls(){
           <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
           ${c.assignmentNote ? `<div class="lead-meta">Note from ${esc(c.assignedByHead||'Head')}: "${esc(c.assignmentNote)}"</div>` : ''}
           ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta" style="margin-top:4px;padding:6px 10px;background:var(--warn-bg);color:var(--warn);border-radius:8px;">📅 Meeting already scheduled: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>` : ''}
+          ${c.nextFollowUp ? `<div class="lead-meta" style="margin-top:4px;">Next call already set for: <b>${fmtDate(c.nextFollowUp)}</b></div>` : ''}
         </div>
       </div>
       ${receptionConnCallForm(c)}
@@ -3252,12 +3253,20 @@ function bindDynamicHandlers(){
       }
       if(!c.log) c.log = [];
       c.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, nextFollowUp:c.nextFollowUp});
-      c.assignedToReception = false;
-      c.assignmentNote = '';
-      c.assignedToPerson = '';
-      c.assignedByHead = '';
-      await saveConnections(CONNECTIONS);
-      toast(`Call logged for ${c.name} — sent back to Head`);
+      // Stays with Reception if it's just another future call to make. Only comes back
+      // to Head once the loop is actually closed — either nothing more to do, or a
+      // meeting got locked in (which Head needs to know about and attend).
+      if(noFuture || meetingYes){
+        c.assignedToReception = false;
+        c.assignmentNote = '';
+        c.assignedToPerson = '';
+        c.assignedByHead = '';
+        await saveConnections(CONNECTIONS);
+        toast(meetingYes ? `Meeting set for ${c.name} — sent back to Head` : `Call logged for ${c.name} — sent back to Head`);
+      } else {
+        await saveConnections(CONNECTIONS);
+        toast(`Call logged for ${c.name} — next call on ${fmtDate(nextDate)}, still with you`);
+      }
       renderApp();
     });
   });

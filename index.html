@@ -309,6 +309,7 @@ function normalizeConnection(c){
   if(c.assignedToReception===undefined) c.assignedToReception = false;
   if(c.assignmentNote===undefined) c.assignmentNote = '';
   if(c.assignedToPerson===undefined) c.assignedToPerson = '';
+  if(c.assignedByHead===undefined) c.assignedByHead = '';
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -1855,7 +1856,7 @@ function viewReceptionConnectionCalls(){
         <div>
           <div class="lead-name">${esc(c.name)}</div>
           <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
-          ${c.assignmentNote ? `<div class="lead-meta">Note from Head: "${esc(c.assignmentNote)}"</div>` : ''}
+          ${c.assignmentNote ? `<div class="lead-meta">Note from ${esc(c.assignedByHead||'Head')}: "${esc(c.assignmentNote)}"</div>` : ''}
           ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta" style="margin-top:4px;padding:6px 10px;background:var(--warn-bg);color:var(--warn);border-radius:8px;">📅 Meeting already scheduled: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>` : ''}
         </div>
       </div>
@@ -2046,6 +2047,7 @@ function bindConnectionCardHandlers(){
       c.assignedToReception = true;
       c.assignedToPerson = personSel.value;
       c.assignmentNote = note;
+      c.assignedByHead = SESSION.name;
       await saveConnections(CONNECTIONS);
       toast(`Sent ${c.name} to ${personSel.value}`);
       renderApp();
@@ -2059,6 +2061,7 @@ function bindConnectionCardHandlers(){
       c.assignedToReception = false;
       c.assignmentNote = '';
       c.assignedToPerson = '';
+      c.assignedByHead = '';
       await saveConnections(CONNECTIONS);
       toast('Taken back');
       renderApp();
@@ -3252,6 +3255,7 @@ function bindDynamicHandlers(){
       c.assignedToReception = false;
       c.assignmentNote = '';
       c.assignedToPerson = '';
+      c.assignedByHead = '';
       await saveConnections(CONNECTIONS);
       toast(`Call logged for ${c.name} — sent back to Head`);
       renderApp();

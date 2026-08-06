@@ -306,6 +306,8 @@ function normalizeConnection(c){
   if(c.meetingTime===undefined) c.meetingTime = null;
   if(c.state===undefined) c.state = '';
   if(c.city===undefined) c.city = '';
+  if(c.assignedToReception===undefined) c.assignedToReception = false;
+  if(c.assignmentNote===undefined) c.assignmentNote = '';
   c.log.forEach(l=>{ if(l.nextFollowUp===undefined) l.nextFollowUp = null; });
   return c;
 }
@@ -758,12 +760,12 @@ async function loginAs(role, name){
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
   recordLastLogin(role, name);
   await saveStaff(STAFF);
-  if(role==='head'){
+  if(role==='head' || role==='reception'){
     CONNECTIONS = await loadConnections();
     if(USE_FIREBASE){
       db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
         CONNECTIONS = doc.exists ? JSON.parse(doc.data().value).map(normalizeConnection) : [];
-        if(SESSION && SESSION.role==='head') renderApp();
+        if(SESSION && (SESSION.role==='head' || SESSION.role==='reception')) renderApp();
       });
     }
   }
@@ -981,6 +983,7 @@ function tabsFor(role){
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
     {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
+    {id:'connectioncalls', label:'Connection Calls', badge:()=>receptionAssignedConnections().length},
     {id:'upcoming', label:'Upcoming Follow-ups'},
     {id:'add', label:'+ New Lead'},
     {id:'all', label:'All Leads'},
@@ -992,7 +995,7 @@ function tabsFor(role){
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
       sub:[{id:'all', label:'All Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>connectionsDueTodayCount(),
-      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}]},
+      sub:[{id:'add', label:'Add Connection'}, {id:'view', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>connectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception).length}]},
     {id:'reports', label:'Reports',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
@@ -1052,6 +1055,7 @@ async function renderApp(){
   if(SESSION.role==='reception'){
     if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox();
     else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
+    else if(ACTIVE_TAB==='connectioncalls') area.innerHTML = viewReceptionConnectionCalls();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
     else if(ACTIVE_TAB==='add') area.innerHTML = viewAddLead();
     else area.innerHTML = viewAllLeads(true);
@@ -1069,6 +1073,7 @@ async function renderApp(){
       else if(ACTIVE_SUBTAB==='followup') area.innerHTML = viewConnectionsFollowup();
       else if(ACTIVE_SUBTAB==='upcomingfollowup') area.innerHTML = viewConnectionsUpcomingFollowup();
       else if(ACTIVE_SUBTAB==='upcomingmeetings') area.innerHTML = viewConnectionsUpcomingMeetings();
+      else if(ACTIVE_SUBTAB==='sentreception') area.innerHTML = viewConnectionsSentToReception();
       else area.innerHTML = viewConnectionsAdd();
     }
     else if(ACTIVE_TAB==='reports'){
@@ -1538,7 +1543,7 @@ function viewHeadOverview(){
 
   <div class="section-title" style="margin-top:20px;">🔒 Your Connections — Due Today</div>
   ${(()=>{
-    const dueConns = CONNECTIONS.filter(c=> c.createdBy===SESSION.name && ((c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c)));
+    const dueConns = CONNECTIONS.filter(c=> c.createdBy===SESSION.name && !c.assignedToReception && ((c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c)));
     if(!dueConns.length) return `<div class="empty">Nothing due on your personal connections today.</div>`;
     return dueConns.map(c=>{
       const callDue = c.nextFollowUp && isDueToday(c.nextFollowUp);
@@ -1682,6 +1687,9 @@ function urgencyReasonForConnection(c){
 function connectionMeetingDueOrOverdue(c){
   return c.meetingScheduled && c.meetingDate && c.meetingDate<=todayStr();
 }
+function receptionAssignedConnections(){
+  return CONNECTIONS.filter(c=>c.assignedToReception);
+}
 function connectionHasScheduledPlan(c){
   return !!c.nextFollowUp || (c.meetingScheduled && !!c.meetingDate);
 }
@@ -1691,7 +1699,7 @@ function connectionsDueTodayCount(){
 // Scoped to just what THIS head added — used for personal push notifications, so
 // heads aren't pinged for each other's connections, only their own.
 function myConnectionsDueTodayCount(){
-  return CONNECTIONS.filter(c=> c.createdBy===SESSION.name && ((c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c))).length;
+  return CONNECTIONS.filter(c=> c.createdBy===SESSION.name && !c.assignedToReception && ((c.nextFollowUp && isDueToday(c.nextFollowUp)) || connectionMeetingDueOrOverdue(c))).length;
 }
 function viewConnectionsAdd(){
   return `
@@ -1795,6 +1803,75 @@ function viewConnectionsUpcomingMeetings(){
   <div id="connResults">${renderConnectionResults('', 'meetings', false, false)}</div>
   `;
 }
+function receptionConnCallForm(c){
+  return `
+    <div class="assign-block" style="margin-top:10px;">
+      <div class="section-title" style="margin:0 0 6px;">Log This Call</div>
+      <label>Call remarks</label>
+      <textarea class="recpConnRemarks" data-conn="${c.id}" placeholder="What did they say on this call?"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
+        <input type="checkbox" class="recpConnNoFuture" data-conn="${c.id}" style="width:auto;margin:0;">
+        No future follow-up needed
+      </label>
+      <div class="recpConnDateWrap-${c.id}">
+        <label>Next call date</label>
+        <input type="date" class="recpConnFollowupDate" data-conn="${c.id}" value="${todayStr()}">
+      </div>
+      <label>Is a meeting scheduled?</label>
+      <select class="recpConnMeetingSel" data-conn="${c.id}">
+        <option value="no" selected>No</option>
+        <option value="yes">Yes</option>
+      </select>
+      <div class="recpConnMeetingWrap-${c.id}" style="display:none;">
+        <label>Meeting date</label>
+        <input type="date" class="recpConnMeetingDate" data-conn="${c.id}" value="${todayStr()}">
+        <label>Meeting time (optional)</label>
+        <input type="time" class="recpConnMeetingTime" data-conn="${c.id}">
+      </div>
+      <button class="btn btn-brass btn-sm saveRecpConnCallBtn" data-conn="${c.id}">Save Call</button>
+    </div>`;
+}
+function viewReceptionConnectionCalls(){
+  const list = receptionAssignedConnections();
+  return `
+  <div class="section-title" style="margin-top:0;">Connection Calls</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Calls your Head has asked you to make. Log what happens, and it goes straight back to them.</div>
+  ${!list.length ? `<div class="empty">No calls assigned to you right now.</div>` : list.map(c=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(c.name)}</div>
+          <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
+          ${c.assignmentNote ? `<div class="lead-meta">Note from Head: "${esc(c.assignmentNote)}"</div>` : ''}
+        </div>
+      </div>
+      ${receptionConnCallForm(c)}
+    </div>`).join('')}
+  `;
+}
+function viewConnectionsSentToReception(){
+  const list = receptionAssignedConnections();
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;">
+    🔒 Visible to Heads only. Reception can only see the specific people listed here — nothing else from your Connections.
+  </div>
+  <div class="section-title" style="margin-top:0;">Sent to Reception</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Reception is handling these calls. Once they log the outcome or set a meeting time, it comes back here automatically.</div>
+  ${!list.length ? `<div class="empty">Nothing currently sent to Reception.</div>` : list.map(c=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(c.name)}</div>
+          <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+          ${c.assignmentNote ? `<div class="lead-meta">Note: "${esc(c.assignmentNote)}"</div>` : ''}
+        </div>
+      </div>
+      <div class="row-btns" style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm unsendFromReceptionBtn" data-conn="${c.id}">Take Back</button>
+      </div>
+    </div>`).join('')}
+  `;
+}
 function connectionCard(c, opts){
   opts = opts || {};
   const compact = opts.compact;
@@ -1867,6 +1944,8 @@ function connectionCard(c, opts){
       </div>
       ${c.nextFollowUp ? followupBadgeFor(c.nextFollowUp) : ''}
     </div>
+    ${c.assignedToReception ? `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--info-bg);color:var(--info);border-radius:8px;">📞 Sent to Reception to call${c.assignmentNote?`: "${esc(c.assignmentNote)}"`:''}</div>` :
+      `<button class="btn btn-ghost btn-sm sendToReceptionBtn" data-conn="${c.id}" style="margin-top:6px;">📞 Send to Reception</button>`}
     ${hideDetails ? `
       <div class="row-btns" style="margin-top:8px;">
         <button class="btn btn-ghost btn-sm toggleConnDetailsBtn" data-conn="${c.id}">View Details</button>
@@ -1900,6 +1979,7 @@ function connectionCard(c, opts){
 // filterMode: 'hasFollowup' (any plan), 'callDueToday', 'callUpcoming', 'meetings', or omitted for everyone.
 function connectionMatchesFilter(c, filterMode){
   const t = todayStr();
+  if(c.assignedToReception && (filterMode==='callDueToday' || filterMode==='callUpcoming')) return false;
   switch(filterMode){
     case 'hasFollowup': return connectionHasScheduledPlan(c);
     case 'callDueToday': return !!(c.nextFollowUp && c.nextFollowUp<=t);
@@ -1924,6 +2004,31 @@ function renderConnectionResults(search, filterMode, compact, hideDetails){
   return list.map(c=>connectionCard(c, {compact, hideDetails})).join('');
 }
 function bindConnectionCardHandlers(){
+  document.querySelectorAll('.sendToReceptionBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const c = CONNECTIONS.find(x=>x.id===btn.dataset.conn);
+      if(!c) return;
+      const note = prompt(`Any note for Reception about calling ${c.name}? (optional — e.g. "please try to fix a meeting this week")`);
+      if(note===null) return; // cancelled
+      c.assignedToReception = true;
+      c.assignmentNote = note.trim();
+      await saveConnections(CONNECTIONS);
+      toast(`Sent ${c.name} to Reception`);
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.unsendFromReceptionBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const c = CONNECTIONS.find(x=>x.id===btn.dataset.conn);
+      if(!c) return;
+      if(!confirm(`Take this back from Reception? They'll no longer see ${c.name} on their list.`)) return;
+      c.assignedToReception = false;
+      c.assignmentNote = '';
+      await saveConnections(CONNECTIONS);
+      toast('Taken back');
+      renderApp();
+    });
+  });
   document.querySelectorAll('.toggleConnFollowupBtn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const form = document.getElementById(`connFollowupForm-${btn.dataset.conn}`);
@@ -3066,6 +3171,44 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  document.querySelectorAll('.recpConnNoFuture').forEach(chk=>{
+    const id = chk.dataset.conn;
+    const wrap = document.querySelector(`.recpConnDateWrap-${id}`);
+    chk.addEventListener('change', ()=>{ if(wrap) wrap.style.display = chk.checked ? 'none' : 'block'; });
+  });
+  document.querySelectorAll('.recpConnMeetingSel').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const wrap = document.querySelector(`.recpConnMeetingWrap-${sel.dataset.conn}`);
+      if(wrap) wrap.style.display = sel.value==='yes' ? 'block' : 'none';
+    });
+  });
+  document.querySelectorAll('.saveRecpConnCallBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.conn;
+      const c = CONNECTIONS.find(x=>x.id===id);
+      if(!c) return;
+      const remarks = document.querySelector(`.recpConnRemarks[data-conn="${id}"]`).value.trim();
+      if(!remarks){ toast('Add call remarks first'); return; }
+      const noFuture = document.querySelector(`.recpConnNoFuture[data-conn="${id}"]`).checked;
+      const nextDate = document.querySelector(`.recpConnFollowupDate[data-conn="${id}"]`).value;
+      const meetingYes = document.querySelector(`.recpConnMeetingSel[data-conn="${id}"]`).value==='yes';
+      if(!noFuture && !meetingYes && !nextDate){ toast('Choose a follow-up date, tick "No future follow-up needed", or schedule a meeting'); return; }
+      c.nextFollowUp = (noFuture || meetingYes) ? null : nextDate;
+      if(meetingYes){
+        c.meetingScheduled = true;
+        c.meetingDate = document.querySelector(`.recpConnMeetingDate[data-conn="${id}"]`).value;
+        c.meetingTime = document.querySelector(`.recpConnMeetingTime[data-conn="${id}"]`).value || null;
+      }
+      if(!c.log) c.log = [];
+      c.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, nextFollowUp:c.nextFollowUp});
+      c.assignedToReception = false;
+      c.assignmentNote = '';
+      await saveConnections(CONNECTIONS);
+      toast(`Call logged for ${c.name} — sent back to Head`);
+      renderApp();
+    });
+  });
 
   const exportAllMeetingsBtn = document.getElementById('exportAllMeetingsBtn');
   if(exportAllMeetingsBtn){

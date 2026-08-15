@@ -707,13 +707,19 @@ function renderHeadPassArea(){
 function renderStaffAuthArea(){
   const sel = document.getElementById('staffSelect').value;
   const area = document.getElementById('staffAuthArea');
-  if(sel){
+  if(!sel){ area.innerHTML = ''; return; }
+  const person = STAFF[pendingRole].find(p=>p.name===sel);
+  if(!person.pass){
+    area.innerHTML = `
+      <label>Set your password (first login, or after a reset)</label>
+      <input type="password" id="staffNewPass" placeholder="Choose a password (min 4 characters)">
+      <input type="password" id="staffNewPass2" placeholder="Confirm password">
+    `;
+  } else {
     area.innerHTML = `
       <label>Password</label>
       <input type="password" id="staffPass" placeholder="Enter password">
     `;
-  } else {
-    area.innerHTML = '';
   }
 }
 
@@ -805,6 +811,16 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
   const sel = staffSelectEl.value;
   if(!sel){ errArea.textContent='Select your name first.'; return; }
   const person = STAFF[pendingRole].find(s=>s.name===sel);
+  if(!person.pass){
+    const p1 = document.getElementById('staffNewPass').value;
+    const p2 = document.getElementById('staffNewPass2').value;
+    if(!p1 || p1.length<4){ errArea.textContent='Password must be at least 4 characters.'; return; }
+    if(p1!==p2){ errArea.textContent='Passwords do not match.'; return; }
+    person.pass = p1;
+    await saveStaff(STAFF);
+    loginAs(pendingRole, sel);
+    return;
+  }
   const p = document.getElementById('staffPass').value;
   if(p!==person.pass){ errArea.textContent='Incorrect password.'; return; }
   loginAs(pendingRole, sel);
@@ -2260,8 +2276,13 @@ function viewManageLogins(){
   <div class="section-title" style="margin-top:16px;">Heads</div>
   ${STAFF.heads.map(p=>`
     <div class="card" style="padding:10px 14px;">
-      <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
-      <div class="lead-meta">${lastLoginText(p)}</div>
+      <div class="card-row">
+        <div>
+          <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+          <div class="lead-meta">${lastLoginText(p)}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm resetHeadPassBtn" data-name="${esc(p.name)}">Reset Password</button>
+      </div>
     </div>
   `).join('')}
 
@@ -2328,6 +2349,17 @@ function bindManageLoginsHandlers(){
       renderApp();
     });
   }
+  document.querySelectorAll('.resetHeadPassBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const name = btn.dataset.name;
+      if(!confirm(`Reset ${name}'s password? They'll be asked to set a new one at next login.`)) return;
+      const head = STAFF.heads.find(h=>h.name===name);
+      head.pass = '';
+      await saveStaff(STAFF);
+      toast(`Password reset for ${name} — they'll set a new one at next login.`);
+      renderApp();
+    });
+  });
   document.querySelectorAll('.resetPassBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const dept = btn.dataset.dept, name = btn.dataset.name;

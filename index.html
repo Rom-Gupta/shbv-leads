@@ -2405,6 +2405,7 @@ function bindManageLoginsHandlers(){
   document.querySelectorAll('.resetPassBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const dept = btn.dataset.dept, name = btn.dataset.name;
+      if(!confirm(`Reset ${name}'s password? They'll be asked to set a new one at next login.`)) return;
       const person = STAFF[dept].find(p=>p.name===name);
       person.pass = '';
       await saveStaff(STAFF);

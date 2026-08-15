@@ -1496,7 +1496,7 @@ function leadCardSales(lead, a){
 function isAssignmentStale(a){
   const STALE_DAYS = 3;
   const cutoff = Date.now() - STALE_DAYS*86400000;
-  if(a.status!=='pending') return false;
+  if(a.status==='sale' || a.status==='lost') return false;
   const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
   const lastTime = lastLog ? lastLog.timestamp : a.assignedAt;
   return new Date(lastTime).getTime() < cutoff;
@@ -2484,12 +2484,12 @@ function inRange(iso, start, end){ const d = iso.slice(0,10); return d>=start &&
 
 function computeWeeklyStats(start, end){
   const byTeam = {};
-  Object.keys(TEAM_LABELS).forEach(k=> byTeam[k] = {referred:0,visited:0,sale:0,followup:0,lost:0});
+  Object.keys(TEAM_LABELS).forEach(k=> byTeam[k] = {referred:0,visited:0,partial:0,sale:0,followup:0,lost:0});
   const bySales = {};
   LEADS.forEach(l=>{
     (l.assignments||[]).forEach(a=>{
       const key = a.team+'|'+a.salesperson;
-      if(!bySales[key]) bySales[key] = {team:a.team, name:a.salesperson, referred:0, followupCalls:[], sale:0, lost:0};
+      if(!bySales[key]) bySales[key] = {team:a.team, name:a.salesperson, referred:0, followupCalls:[], partial:0, sale:0, lost:0};
       if(inRange(a.assignedAt, start, end)){
         byTeam[a.team].referred++;
         bySales[key].referred++;
@@ -2497,6 +2497,7 @@ function computeWeeklyStats(start, end){
       (a.log||[]).forEach(log=>{
         if(!inRange(log.timestamp, start, end)) return;
         if(log.status==='visited') byTeam[a.team].visited++;
+        if(log.status==='partial_sale'){ byTeam[a.team].partial++; bySales[key].partial++; }
         if(log.status==='sale'){ byTeam[a.team].sale++; bySales[key].sale++; }
         if(log.status==='lost'){ byTeam[a.team].lost++; bySales[key].lost++; }
         if(log.status==='followup'){
@@ -2558,13 +2559,13 @@ function viewWeeklyReport(){
   <div class="card">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <tr style="text-align:left;color:var(--ink-soft);font-size:11.5px;text-transform:uppercase;">
-        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
+        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Partial</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
       </tr>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>{
         const s = stats.byTeam[k];
         return `<tr style="border-top:1px solid var(--line);">
           <td style="padding:6px 6px 6px 0;font-weight:600;">${v}</td>
-          <td>${s.referred}</td><td>${s.visited}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
+          <td>${s.referred}</td><td>${s.visited}</td><td>${s.partial}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
         </tr>`;
       }).join('')}
     </table>
@@ -2585,6 +2586,7 @@ function viewWeeklyReport(){
           </div>
           <div style="text-align:right;font-size:12.5px;">
             <div><b>${s.followupCalls.length}</b> follow-ups</div>
+            <div style="color:var(--brass);"><b>${s.partial}</b> partial</div>
             <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
             <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
           </div>
@@ -2640,13 +2642,13 @@ function viewMonthlyReport(){
   <div class="card">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <tr style="text-align:left;color:var(--ink-soft);font-size:11.5px;text-transform:uppercase;">
-        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
+        <th style="padding:4px 6px 4px 0;">Team</th><th>Referred</th><th>Visited</th><th>Partial</th><th>Sold</th><th>Follow-ups</th><th>Lost</th>
       </tr>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>{
         const s = stats.byTeam[k];
         return `<tr style="border-top:1px solid var(--line);">
           <td style="padding:6px 6px 6px 0;font-weight:600;">${v}</td>
-          <td>${s.referred}</td><td>${s.visited}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
+          <td>${s.referred}</td><td>${s.visited}</td><td>${s.partial}</td><td>${s.sale}</td><td>${s.followup}</td><td>${s.lost}</td>
         </tr>`;
       }).join('')}
     </table>
@@ -2667,6 +2669,7 @@ function viewMonthlyReport(){
           </div>
           <div style="text-align:right;font-size:12.5px;">
             <div><b>${s.followupCalls.length}</b> follow-ups</div>
+            <div style="color:var(--brass);"><b>${s.partial}</b> partial</div>
             <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
             <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
           </div>
@@ -2850,14 +2853,21 @@ function leadCardHead(l){
 
 /* ---------------- Head: Daily reports ---------------- */
 function leadsToCSV(){
-  const rows = [['Lead Name','Phone','Address','Source','Added On','Added By','Team','Salesperson','Status','Product','Last Remark','Next Follow-up']];
+  const rows = [['Lead Name','Phone','Address','City','State','Source','Reference Name','Marketing Person','Added On','Added By','Team','Salesperson','Status','Kitchen Pipeline Stage','Meeting Date','Meeting Time','Company Referred','Company Name','Company Person','Product','Last Remark','Next Follow-up']];
   LEADS.forEach(l=>{
     if(!l.assignments || !l.assignments.length){
-      rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'','—','—','Not yet referred','','','']);
+      rows.push([l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',fmtDate(l.createdAt),l.createdBy||'','—','—','Not yet referred','','','','','','','','','']);
     } else {
       l.assignments.forEach(a=>{
         const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
-        rows.push([l.name,l.phone,l.address||'',l.source,fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,statusLabelFor(a),a.product||'',lastLog?lastLog.remarks:'',a.nextFollowUp||'']);
+        rows.push([
+          l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',
+          fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,statusLabelFor(a),
+          a.team==='kitchen' && a.pipelineStage ? (KITCHEN_PIPELINE_LABELS[a.pipelineStage]||'') : '',
+          a.meetingDate||'', a.meetingTime||'',
+          a.companyReferred?'Yes':'No', a.companyName||'', a.companyPersonName||'',
+          a.product||'',lastLog?lastLog.remarks:'',a.nextFollowUp||''
+        ]);
       });
     }
   });

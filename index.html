@@ -148,6 +148,7 @@
   }
   .badge-pending{background:#EEE9DC;color:#7A6A3F;}
   .badge-visited{background:var(--info-bg);color:var(--info);}
+  .badge-partial_sale{background:#FBEFE0;color:var(--brass);}
   .badge-sale{background:var(--ok-bg);color:var(--ok);}
   .badge-followup{background:var(--warn-bg);color:var(--warn);}
   .badge-lost{background:var(--bad-bg);color:var(--bad);}
@@ -516,7 +517,7 @@ const STATE_CITY_MAP = {
   'Delhi': ['New Delhi'],
   'Other': []
 };
-const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
+const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', partial_sale:'Partial Sale Done', sale:'Sale Done', followup:'Follow-up', lost:'Lost', 'no-followup':'No Follow-up Needed'};
 // Kitchen/Wardrobe gets an extra "Pipeline" field alongside the normal Status —
 // it doesn't replace Pending/Visited/Sale/Lost, it just adds more detail on top of it.
 const KITCHEN_PIPELINE_LABELS = {
@@ -3168,7 +3169,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <div class="section-title" style="margin:0 0 6px;">Update Visit Outcome</div>
             <label>Status</label>
             <select class="assignStatusSel" data-assign="${a.id}">
-              ${Object.entries(STATUS_LABELS).filter(([k])=>['pending','visited','sale','lost'].includes(k)).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
+              ${Object.entries(STATUS_LABELS).filter(([k])=>['pending','visited','partial_sale','sale','lost'].includes(k)).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
             </select>
             ${a.team==='kitchen' ? `
             <label>Pipeline</label>

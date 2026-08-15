@@ -656,13 +656,8 @@ function renderNameCardBody(){
   const body = document.getElementById('nameCardBody');
   if(pendingRole==='head'){
     document.getElementById('nameCardTitle').textContent = 'Head login';
-    body.innerHTML = `
-      <label>Select head</label>
-      <select id="headSelect">${STAFF.heads.map(h=>`<option value="${esc(h.name)}">${esc(h.name)}</option>`).join('')}</select>
-      <div id="headPassArea"></div>
-    `;
-    document.getElementById('headSelect').addEventListener('change', renderHeadPassArea);
-    renderHeadPassArea();
+    body.innerHTML = nameTypeaheadFieldHtml('headNameInput', 'headNameSuggestions') + `<div id="headPassArea"></div>`;
+    bindNameTypeahead('headNameInput', 'headNameSuggestions', STAFF.heads.map(h=>h.name), renderHeadPassArea);
   } else {
     document.getElementById('nameCardTitle').textContent =
       pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
@@ -673,23 +668,53 @@ function renderNameCardBody(){
         : `<div class="helper" style="margin-top:0;">No login has been created for this team yet. Ask a Head to add you under "Manage Logins".</div>`;
       return;
     }
-    body.innerHTML = `
-      <label>Your name</label>
-      <select id="staffSelect">
-        <option value="">— select your name —</option>
-        ${list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
-      </select>
-      <div id="staffAuthArea"></div>
-    `;
-    document.getElementById('staffSelect').addEventListener('change', renderStaffAuthArea);
-    renderStaffAuthArea();
+    body.innerHTML = nameTypeaheadFieldHtml('staffNameInput', 'staffNameSuggestions') + `<div id="staffAuthArea"></div>`;
+    bindNameTypeahead('staffNameInput', 'staffNameSuggestions', list.map(p=>p.name), renderStaffAuthArea);
   }
 }
 
-function renderHeadPassArea(){
-  const name = document.getElementById('headSelect').value;
+function nameTypeaheadFieldHtml(inputId, suggestionsId){
+  return `
+    <label>Type your name</label>
+    <div style="position:relative;">
+      <input type="text" id="${inputId}" autocomplete="off" placeholder="Start typing your name">
+      <div id="${suggestionsId}" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+    </div>
+  `;
+}
+// No names are shown until at least 2 characters are typed — so a random visitor
+// who doesn't already know a name can't just open the field and see your staff list.
+function bindNameTypeahead(inputId, suggestionsId, names, onResolve){
+  const input = document.getElementById(inputId);
+  const suggestions = document.getElementById(suggestionsId);
+  function tryResolve(){
+    const q = input.value.trim().toLowerCase();
+    const match = names.find(n=>n.toLowerCase()===q);
+    onResolve(match || null);
+  }
+  function render(){
+    const q = input.value.trim().toLowerCase();
+    if(q.length<2){ suggestions.classList.add('hidden'); suggestions.innerHTML=''; return; }
+    const matches = names.filter(n=>n.toLowerCase().includes(q)).slice(0,6);
+    if(!matches.length){ suggestions.classList.add('hidden'); suggestions.innerHTML=''; return; }
+    suggestions.innerHTML = matches.map(n=>`<div class="nameSuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(n)}</div>`).join('');
+    suggestions.classList.remove('hidden');
+    suggestions.querySelectorAll('.nameSuggestionItem').forEach(item=>{
+      item.addEventListener('click', ()=>{
+        input.value = item.textContent;
+        suggestions.classList.add('hidden');
+        tryResolve();
+      });
+    });
+  }
+  input.addEventListener('input', ()=>{ render(); tryResolve(); });
+  input.addEventListener('blur', ()=>{ setTimeout(()=>suggestions.classList.add('hidden'), 150); });
+}
+
+function renderHeadPassArea(name){
   const head = STAFF.heads.find(h=>h.name===name);
   const area = document.getElementById('headPassArea');
+  if(!head){ area.innerHTML = ''; return; }
   if(!head.pass){
     area.innerHTML = `
       <label>Set your password (first login)</label>
@@ -704,11 +729,11 @@ function renderHeadPassArea(){
   }
 }
 
-function renderStaffAuthArea(){
-  const sel = document.getElementById('staffSelect').value;
+function renderStaffAuthArea(name){
   const area = document.getElementById('staffAuthArea');
-  if(!sel){ area.innerHTML = ''; return; }
-  const person = STAFF[pendingRole].find(p=>p.name===sel);
+  if(!name){ area.innerHTML = ''; return; }
+  const person = STAFF[pendingRole].find(p=>p.name===name);
+  if(!person){ area.innerHTML = ''; return; }
   if(!person.pass){
     area.innerHTML = `
       <label>Set your password (first login, or after a reset)</label>
@@ -788,8 +813,9 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
   errArea.textContent = '';
 
   if(pendingRole==='head'){
-    const name = document.getElementById('headSelect').value;
-    const head = STAFF.heads.find(h=>h.name===name);
+    const typed = (document.getElementById('headNameInput').value||'').trim().toLowerCase();
+    const head = STAFF.heads.find(h=>h.name.toLowerCase()===typed);
+    if(!head){ errArea.textContent='Enter your exact name to continue.'; return; }
     if(!head.pass){
       const p1 = document.getElementById('headNewPass').value;
       const p2 = document.getElementById('headNewPass2').value;
@@ -797,20 +823,20 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
       if(p1!==p2){ errArea.textContent='Passwords do not match.'; return; }
       head.pass = p1;
       await saveStaff(STAFF);
-      loginAs('head', name);
+      loginAs('head', head.name);
     } else {
       const p = document.getElementById('headPass').value;
       if(p!==head.pass){ errArea.textContent='Incorrect password.'; return; }
-      loginAs('head', name);
+      loginAs('head', head.name);
     }
     return;
   }
 
-  const staffSelectEl = document.getElementById('staffSelect');
-  if(!staffSelectEl){ errArea.textContent='No login exists yet — ask a Head to create one for you.'; return; }
-  const sel = staffSelectEl.value;
-  if(!sel){ errArea.textContent='Select your name first.'; return; }
-  const person = STAFF[pendingRole].find(s=>s.name===sel);
+  const staffNameEl = document.getElementById('staffNameInput');
+  if(!staffNameEl){ errArea.textContent='No login exists yet — ask a Head to create one for you.'; return; }
+  const typedStaff = (staffNameEl.value||'').trim().toLowerCase();
+  const person = (STAFF[pendingRole]||[]).find(s=>s.name.toLowerCase()===typedStaff);
+  if(!person){ errArea.textContent='Enter your exact name to continue.'; return; }
   if(!person.pass){
     const p1 = document.getElementById('staffNewPass').value;
     const p2 = document.getElementById('staffNewPass2').value;
@@ -818,15 +844,15 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
     if(p1!==p2){ errArea.textContent='Passwords do not match.'; return; }
     person.pass = p1;
     await saveStaff(STAFF);
-    loginAs(pendingRole, sel);
+    loginAs(pendingRole, person.name);
     return;
   }
   const p = document.getElementById('staffPass').value;
   if(p!==person.pass){ errArea.textContent='Incorrect password.'; return; }
-  loginAs(pendingRole, sel);
+  loginAs(pendingRole, person.name);
 });
 
-document.getElementById('logoutBtn').addEventListener('click', ()=>{
+function performLogout(reason){
   SESSION = null;
   KNOWN_MY_ASSIGNMENT_IDS = null;
   document.getElementById('mainApp').classList.add('hidden');
@@ -834,7 +860,22 @@ document.getElementById('logoutBtn').addEventListener('click', ()=>{
   [...roleGrid.children].forEach(c=>c.classList.remove('selected'));
   nameCard.classList.add('hidden');
   pendingRole = null;
+  if(reason==='inactivity') toast('Logged out after 30 minutes of inactivity');
+}
+document.getElementById('logoutBtn').addEventListener('click', ()=> performLogout('manual'));
+
+// Auto-logout after 30 minutes of no activity — protects a phone or shared
+// showroom device left unlocked and logged in as Head.
+const AUTO_LOGOUT_MS = 30*60*1000;
+let lastActivityAt = Date.now();
+['click','keydown','touchstart','mousemove'].forEach(evt=>{
+  document.addEventListener(evt, ()=>{ lastActivityAt = Date.now(); }, {passive:true});
 });
+setInterval(()=>{
+  if(SESSION && (Date.now()-lastActivityAt) > AUTO_LOGOUT_MS){
+    performLogout('inactivity');
+  }
+}, 60*1000);
 
 /* ---------------- Derived helpers ---------------- */
 function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }

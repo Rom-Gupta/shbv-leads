@@ -1691,28 +1691,17 @@ function viewHeadOverview(){
     <div class="stat"><div class="n">${dueAcrossAll}</div><div class="l">Follow-ups Due</div></div>
   </div>
   <div class="section-title">Needs attention today</div>
-  ${dueAcrossAll===0 ? `<div class="empty">Nothing overdue right now.</div>` : ''}
-  ${LEADS.filter(l=>{
-      let due=false;
-      (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) due=true; });
-      if(!leadHasAssignments(l)){
-        const last=l.receptionLog?.length?l.receptionLog[l.receptionLog.length-1]:null;
-        if(last && last.status==='followup' && isDueToday(last.nextFollowUp)) due=true;
-      }
-      return due;
-    }).map(l=>leadCardHead(l)).join('')}
-
   ${(()=>{
     const walkins = neglectedWalkins();
     const marketing = neglectedMarketingLeads();
-    if(!walkins.length && !marketing.length) return '';
+    if(!walkins.length && !marketing.length) return `<div class="empty">Nothing needs attention right now.</div>`;
     let html = '';
     if(walkins.length){
-      html += `<div class="section-title" style="margin-top:14px;color:var(--bad);">⚠ Walk-ins Not Referred (24h+)</div>`;
+      html += `<div class="lead-meta" style="margin-bottom:6px;">Walk-in, not referred to any team, no update within 24 hours:</div>`;
       html += walkins.map(l=>leadCardHead(l)).join('');
     }
     if(marketing.length){
-      html += `<div class="section-title" style="margin-top:14px;color:var(--warn);">⚠ Physical Marketing Not Referred (30+ days)</div>`;
+      html += `<div class="lead-meta" style="margin:${walkins.length?'14px':'0'} 0 6px;">Physical Marketing, not referred to any team within 1 month:</div>`;
       html += marketing.map(l=>leadCardHead(l)).join('');
     }
     return html;

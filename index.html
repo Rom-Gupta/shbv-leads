@@ -236,6 +236,7 @@
       <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
       <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
       <div class="role-btn" data-role="windows">Sales – Windows</div>
+      <div class="role-btn" data-role="assistant">Sales Assistant</div>
     </div>
   </div>
 
@@ -362,7 +363,7 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[], assistants:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
@@ -372,6 +373,8 @@ function normalizeStaffObj(s){
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
   });
   if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
+  if(!Array.isArray(s.assistants)) s.assistants = [];
+  s.assistants.forEach(a=>{ if(!Array.isArray(a.helping)) a.helping = []; });
   if(!Array.isArray(s.heads) || s.heads.length!==3){
     s.heads = defaultStaff().heads;
   }
@@ -472,6 +475,7 @@ function normalizeLead(l){
   if(!l.receptionLog) l.receptionLog = [];
   if(!l.assignments) l.assignments = [];
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
+  if(l.pendingAssistantRouting===undefined) l.pendingAssistantRouting = null;
   if(l.state===undefined) l.state = '';
   if(l.city===undefined) l.city = '';
   if(l.referenceName===undefined) l.referenceName = '';
@@ -653,6 +657,9 @@ roleGrid.addEventListener('click', (e)=>{
   renderNameCardBody();
 });
 
+function staffListForRole(role){
+  return role==='assistant' ? STAFF.assistants : (STAFF[role]||[]);
+}
 function renderNameCardBody(){
   const body = document.getElementById('nameCardBody');
   if(pendingRole==='head'){
@@ -661,8 +668,8 @@ function renderNameCardBody(){
     bindNameTypeahead('headNameInput', 'headNameSuggestions', STAFF.heads.map(h=>h.name), renderHeadPassArea);
   } else {
     document.getElementById('nameCardTitle').textContent =
-      pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
-    const list = STAFF[pendingRole]||[];
+      pendingRole==='reception' ? 'Reception login' : (pendingRole==='assistant' ? 'Sales Assistant login' : `${TEAM_LABELS[pendingRole]} team login`);
+    const list = staffListForRole(pendingRole);
     if(!list.length){
       body.innerHTML = STORAGE_ERROR
         ? `<div class="helper" style="margin-top:0;color:var(--bad);">Could not connect to the data store, so no logins could be loaded. Try reloading the page — if it keeps happening, tell your admin.</div>`
@@ -733,7 +740,7 @@ function renderHeadPassArea(name){
 function renderStaffAuthArea(name){
   const area = document.getElementById('staffAuthArea');
   if(!name){ area.innerHTML = ''; return; }
-  const person = STAFF[pendingRole].find(p=>p.name===name);
+  const person = staffListForRole(pendingRole).find(p=>p.name===name);
   if(!person){ area.innerHTML = ''; return; }
   if(!person.pass){
     area.innerHTML = `
@@ -750,7 +757,7 @@ function renderStaffAuthArea(name){
 }
 
 function recordLastLogin(role, name){
-  const list = role==='head' ? STAFF.heads : STAFF[role];
+  const list = role==='head' ? STAFF.heads : staffListForRole(role);
   const person = list ? list.find(p=>p.name===name) : null;
   if(person) person.lastLogin = new Date().toISOString();
 }
@@ -763,6 +770,7 @@ function currentUserDueTodayCount(){
   if(!SESSION) return 0;
   if(SESSION.role==='reception') return receptionDueTodayCount();
   if(SESSION.role==='head') return headDueTodayCount() + myConnectionsDueTodayCount();
+  if(SESSION.role==='assistant') return assistantDueTodayLeads().length;
   return dueTodayCountForMe();
 }
 // Shows a real OS-level browser notification once per person per day — never spams,
@@ -786,11 +794,11 @@ function checkAndNotifyDueToday(){
 async function loginAs(role, name){
   SESSION = {role, name};
   KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
-  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : 'myleads');
+  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : (role==='assistant' ? 'route' : 'myleads'));
   ACTIVE_SUBTAB = null;
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
-  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':TEAM_LABELS[role]+' Sales');
+  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':(role==='assistant'?'Sales Assistant':TEAM_LABELS[role]+' Sales'));
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
   recordLastLogin(role, name);
   await saveStaff(STAFF);
@@ -836,7 +844,7 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
   const staffNameEl = document.getElementById('staffNameInput');
   if(!staffNameEl){ errArea.textContent='No login exists yet — ask a Head to create one for you.'; return; }
   const typedStaff = (staffNameEl.value||'').trim().toLowerCase();
-  const person = (STAFF[pendingRole]||[]).find(s=>s.name.toLowerCase()===typedStaff);
+  const person = staffListForRole(pendingRole).find(s=>s.name.toLowerCase()===typedStaff);
   if(!person){ errArea.textContent='Enter your exact name to continue.'; return; }
   if(!person.pass){
     const p1 = document.getElementById('staffNewPass').value;
@@ -879,6 +887,47 @@ setInterval(()=>{
 }, 60*1000);
 
 /* ---------------- Derived helpers ---------------- */
+/* ---------------- Sales Assistants (help one or more real salespeople) ---------------- */
+function myAssistantRecord(){
+  return STAFF.assistants.find(a=>a.name===SESSION.name);
+}
+function myHelpingList(){
+  const rec = myAssistantRecord();
+  return rec ? (rec.helping||[]) : [];
+}
+function isHelping(team, salesperson){
+  return myHelpingList().some(h=>h.team===team && h.salesperson===salesperson);
+}
+function isMyAssignment(a){
+  if(SESSION.role==='assistant') return isHelping(a.team, a.salesperson);
+  return a.team===SESSION.role && a.salesperson===SESSION.name;
+}
+// Leads Reception has handed to this assistant, not yet routed to a real salesperson.
+function assistantRoutingQueue(){
+  return LEADS.filter(l=>l.pendingAssistantRouting===SESSION.name);
+}
+// Every assignment across every salesperson this assistant is currently helping —
+// tagged with whose lead it is, since they may be helping more than one person at once.
+function assistantAllAssignments(){
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(isHelping(a.team, a.salesperson)) out.push({lead:l, a});
+  }));
+  return out;
+}
+function assistantActiveLeads(){
+  return assistantAllAssignments().filter(({a})=> a.status!=='sale' && a.status!=='lost');
+}
+function assistantDueTodayLeads(){
+  return assistantAllAssignments().filter(({a})=>
+    (a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)
+  );
+}
+// Attribution shown in log entries when an assistant acts on someone else's lead.
+function currentLogAuthor(a){
+  if(SESSION.role==='assistant') return `${SESSION.name} (for ${a.salesperson})`;
+  return SESSION.name;
+}
 function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }
 // Cross-sell: any department that's never been referred on this lead is a
 // pending opportunity — unless someone explicitly marked "no need" for it.
@@ -1069,6 +1118,13 @@ function tabsFor(role){
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
   ];
+  if(role==='assistant') return [
+    {id:'route', label:'Leads to Route', badge:()=>assistantRoutingQueue().length},
+    {id:'myleads', label:'Active Leads', badge:()=>assistantActiveLeads().length},
+    {id:'due', label:'Due Today', badge:()=>assistantDueTodayLeads().length},
+    {id:'allmine', label:'All Leads'},
+    {id:'helping', label:'Who I\'m Helping'},
+  ];
   return [
     {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe()},
     {id:'due', label:'Due Today', badge:()=>dueTodayCountForMe()},
@@ -1155,6 +1211,13 @@ async function renderApp(){
     }
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
     else area.innerHTML = viewHeadOverview();
+  } else if(SESSION.role==='assistant'){
+    if(ACTIVE_TAB==='route') area.innerHTML = viewAssistantRouteQueue();
+    else if(ACTIVE_TAB==='myleads') area.innerHTML = viewAssistantLeads('active');
+    else if(ACTIVE_TAB==='due') area.innerHTML = viewAssistantLeads('due');
+    else if(ACTIVE_TAB==='allmine') area.innerHTML = viewAssistantAllLeads();
+    else if(ACTIVE_TAB==='helping') area.innerHTML = viewAssistantHelping();
+    else area.innerHTML = viewAssistantRouteQueue();
   } else {
     if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');
@@ -1384,6 +1447,58 @@ function viewAddLead(){
 }
 
 /* ---------------- Sales: My Leads / Due Today ---------------- */
+function assistantLeadCardWrap(lead, a){
+  return `<div class="lead-meta" style="margin-bottom:-6px;font-weight:700;color:var(--brass);">👤 Helping: ${esc(a.salesperson)} — ${TEAM_LABELS[a.team]}</div>` + leadCardSales(lead, a);
+}
+function viewAssistantRouteQueue(){
+  const list = assistantRoutingQueue();
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;">Leads Reception has handed to you. Open one and refer it to the right salesperson — same as anyone else's referral.</div>
+  ${!list.length ? `<div class="empty">Nothing to route right now.</div>` : list.map(l=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(l.name)}</div>
+          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)}</div>
+          <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
+        </div>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-brass btn-sm" data-open-lead="${l.id}" data-mode="refer">Route This Lead</button>
+      </div>
+    </div>`).join('')}
+  `;
+}
+function viewAssistantLeads(mode){
+  const pairs = mode==='due' ? assistantDueTodayLeads() : assistantActiveLeads();
+  if(!myHelpingList().length) return `<div class="empty">You're not currently helping anyone. Go to "Who I'm Helping" to pick a salesperson.</div>`;
+  if(!pairs.length) return `<div class="empty">${mode==='due' ? 'Nothing due today.' : 'No active leads right now.'}</div>`;
+  return pairs.map(({lead,a})=>assistantLeadCardWrap(lead,a)).join('');
+}
+function viewAssistantAllLeads(){
+  if(!myHelpingList().length) return `<div class="empty">You're not currently helping anyone. Go to "Who I'm Helping" to pick a salesperson.</div>`;
+  const pairs = assistantAllAssignments();
+  if(!pairs.length) return `<div class="empty">No leads found for whoever you're currently helping.</div>`;
+  return pairs.map(({lead,a})=>assistantLeadCardWrap(lead,a)).join('');
+}
+function viewAssistantHelping(){
+  const rec = myAssistantRecord();
+  const helping = rec ? (rec.helping||[]) : [];
+  const allSalespeople = allSalespeopleList();
+  return `
+  <div class="lead-meta" style="margin-bottom:12px;">Pick anyone you're currently helping — you'll see their full leads (active and history) and can log calls on their behalf. Change this anytime, no approval needed.</div>
+  <div class="card">
+    ${allSalespeople.map(p=>{
+      const checked = helping.some(h=>h.team===p.team && h.salesperson===p.name);
+      return `<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-weight:600;">
+        <input type="checkbox" class="helpingChk" data-team="${p.team}" data-name="${esc(p.name)}" ${checked?'checked':''} style="width:auto;margin:0;">
+        ${esc(p.name)} — ${TEAM_LABELS[p.team]}
+      </label>`;
+    }).join('')}
+    <button class="btn btn-primary btn-sm" id="saveHelpingBtn" style="margin-top:8px;">Save</button>
+  </div>
+  `;
+}
 function viewMyLeads(mode){
   let assigns = [];
   LEADS.forEach(l=>{
@@ -2307,6 +2422,7 @@ function viewManageLogins(){
     <select id="newLoginDept">
       <option value="reception">Reception</option>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">Sales – ${v}</option>`).join('')}
+      <option value="assistants">Sales Assistant</option>
     </select>
     <label>Name</label>
     <input type="text" id="newLoginName" placeholder="Full name">
@@ -2345,6 +2461,23 @@ function viewManageLogins(){
       </div>
     `).join('') : `<div class="empty" style="padding:8px 0;">No logins yet.</div>`}
   `).join('')}
+
+  <div class="section-title" style="margin-top:16px;">Sales Assistants</div>
+  ${STAFF.assistants.length ? STAFF.assistants.map(p=>`
+    <div class="card" style="padding:10px 14px;">
+      <div class="card-row">
+        <div>
+          <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+          <div class="lead-meta">${lastLoginText(p)}</div>
+          <div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>
+        </div>
+        <div class="row-btns" style="margin-top:0;">
+          <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="assistants" data-name="${esc(p.name)}">Reset Password</button>
+          <button class="btn btn-ghost btn-sm removeLoginBtn" data-dept="assistants" data-name="${esc(p.name)}">Remove</button>
+        </div>
+      </div>
+    </div>
+  `).join('') : `<div class="empty" style="padding:8px 0;">No Sales Assistant logins yet.</div>`}
 
   <div class="card" style="margin-top:16px;">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Marketing Persons</h3>
@@ -2385,7 +2518,7 @@ function bindManageLoginsHandlers(){
       if(!pass || pass.length<4){ toast('Password must be at least 4 characters'); return; }
       if(!STAFF[dept]) STAFF[dept]=[];
       if(STAFF[dept].some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists in this department'); return; }
-      STAFF[dept].push({name, pass});
+      STAFF[dept].push(dept==='assistants' ? {name, pass, helping:[]} : {name, pass});
       await saveStaff(STAFF);
       toast(`Login created for ${name}`);
       renderApp();
@@ -3135,6 +3268,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
       </div>
       <div class="row-btns">
         <button class="btn btn-brass" id="referBtn">${leadHasAssignments(lead) ? 'Refer to (another) Sales Team' : 'Refer to Sales Team'}</button>
+        ${(STAFF.assistants||[]).length ? `<button class="btn btn-ghost" id="handToAssistantBtn">📋 Hand to Assistant</button>` : ''}
       </div>`;
     }
   } else if(isHead){
@@ -3144,14 +3278,14 @@ function renderLeadDetail(lead, focusAssignId, mode){
   // Assignments — sales viewers only ever see their own assignment on this lead,
   // never another team's history; it should look like a fresh lead to work on.
   const visibleAssignments = isSales
-    ? (lead.assignments||[]).filter(a=> a.team===SESSION.role && a.salesperson===SESSION.name)
+    ? (lead.assignments||[]).filter(a=> isMyAssignment(a))
     : (lead.assignments||[]);
   html += `<div class="section-title" style="margin-top:16px;">${isSales ? 'Your Assignment' : 'Sales Team History'}</div>`;
   if(!visibleAssignments.length){
     html += `<div class="empty" style="padding:8px 0;">Not yet referred to any sales team.</div>`;
   } else {
     visibleAssignments.forEach(a=>{
-      const mine = isSales && a.team===SESSION.role && a.salesperson===SESSION.name;
+      const mine = isSales && isMyAssignment(a);
       html += `<div class="assign-block" ${focusAssignId===a.id?'style="border-color:var(--brass);"':''}>
         <div class="assign-head">
           <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
@@ -3290,7 +3424,9 @@ function openReferForm(leadId, fromAssignId, presetTeam){
       return;
     }
     const note = document.getElementById('referNote').value.trim();
-    const assignerName = SESSION.role==='head' ? `${SESSION.name} (Head)` : (SESSION.role==='reception' ? SESSION.name : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`);
+    const assignerName = SESSION.role==='head' ? `${SESSION.name} (Head)` :
+      (SESSION.role==='reception' ? SESSION.name :
+      (SESSION.role==='assistant' ? `${SESSION.name} (Assistant)` : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`));
     const newAssign = {
       id: uid(), team, assignedAt: new Date().toISOString(), assignedBy: assignerName,
       salesperson: person, acknowledged:false, status:'pending', product:'',
@@ -3298,6 +3434,7 @@ function openReferForm(leadId, fromAssignId, presetTeam){
     };
     if(!lead.assignments) lead.assignments=[];
     lead.assignments.push(newAssign);
+    if(lead.pendingAssistantRouting) lead.pendingAssistantRouting = null;
     await saveLeads(LEADS);
     toast(`Referred to ${TEAM_LABELS[team]} – ${person}`);
     closeModal();
@@ -3356,6 +3493,19 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  const saveHelpingBtn = document.getElementById('saveHelpingBtn');
+  if(saveHelpingBtn){
+    saveHelpingBtn.addEventListener('click', async ()=>{
+      const checked = [...document.querySelectorAll('.helpingChk:checked')].map(chk=>({team:chk.dataset.team, salesperson:chk.dataset.name}));
+      let rec = myAssistantRecord();
+      if(!rec){ toast('Could not find your assistant record'); return; }
+      rec.helping = checked;
+      await saveStaff(STAFF);
+      toast(checked.length ? `Now helping ${checked.length} salesperson${checked.length>1?'s':''}` : 'No longer helping anyone');
+      renderApp();
+    });
+  }
 
   document.querySelectorAll('.recpConnNoFuture').forEach(chk=>{
     const id = chk.dataset.conn;
@@ -3706,6 +3856,23 @@ function bindModalHandlers(lead){
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
 
+  const handToAssistantBtn = document.getElementById('handToAssistantBtn');
+  if(handToAssistantBtn){
+    handToAssistantBtn.addEventListener('click', async ()=>{
+      const names = (STAFF.assistants||[]).map(a=>a.name);
+      if(!names.length){ toast('No Sales Assistant logins exist yet'); return; }
+      const picked = prompt(`Hand "${lead.name}" to which assistant?\n\n${names.join(', ')}\n\nType their exact name:`);
+      if(!picked) return;
+      const match = names.find(n=>n.toLowerCase()===picked.trim().toLowerCase());
+      if(!match){ toast('No exact match for that name'); return; }
+      lead.pendingAssistantRouting = match;
+      await saveLeads(LEADS);
+      toast(`Handed "${lead.name}" to ${match}`);
+      closeModal();
+      renderApp();
+    });
+  }
+
   document.querySelectorAll('.assignPipelineSel').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`.assignMeetingDateWrap-${sel.dataset.assign}`);
@@ -3835,7 +4002,7 @@ function bindModalHandlers(lead){
       // updating the outcome should never silently cancel or change a scheduled follow-up.
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
       if(!a.log) a.log=[];
-      a.log.push({timestamp:new Date().toISOString(), author:SESSION.name, remarks, status, nextFollowUp:a.nextFollowUp});
+      a.log.push({timestamp:new Date().toISOString(), author:currentLogAuthor(a), remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is resolved (Sale Done or Lost): auto-schedule a
       // reception feedback call 2 days later. The remarks spell out which outcome it
       // was so reception knows exactly how to open the conversation — congratulating
@@ -3884,7 +4051,7 @@ function bindModalHandlers(lead){
       a.acknowledged = true;
       if(!a.log) a.log=[];
       a.log.push({
-        timestamp:new Date().toISOString(), author:SESSION.name, remarks,
+        timestamp:new Date().toISOString(), author:currentLogAuthor(a), remarks,
         status: noFuture ? 'no-followup' : 'followup',
         nextFollowUp: a.nextFollowUp
       });

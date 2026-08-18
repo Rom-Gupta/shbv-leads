@@ -3066,7 +3066,7 @@ function leadCardHead(l){
     </div>
     <div class="row-btns">
       <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full History</button>
-      <button class="btn btn-sm deleteLeadCardBtn" style="background:var(--bad);color:#fff;" data-lead-id="${l.id}" data-lead-name="${esc(l.name)}">Delete</button>
+      ${SESSION.role==='head' ? `<button class="btn btn-sm deleteLeadCardBtn" style="background:var(--bad);color:#fff;" data-lead-id="${l.id}" data-lead-name="${esc(l.name)}">Delete</button>` : ''}
     </div>
   </div>`;
 }
@@ -3470,25 +3470,23 @@ function renderLeadDetail(lead, focusAssignId, mode){
     });
   }
 
-  if(isHead){
-    html += `
-    <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px;">
-      <button class="btn btn-ghost btn-sm" id="toggleEditLeadBtn">Edit Lead Details</button>
-      <div class="assign-block hidden" id="editLeadForm" style="margin-top:10px;">
-        <label>Name</label>
-        <input type="text" id="editLeadName" value="${esc(lead.name)}">
-        <label>Phone number</label>
-        <div class="phone-input-group">
-          <span class="phone-prefix">+91</span>
-          <input type="tel" id="editLeadPhone" value="${esc(lead.phone)}">
-        </div>
-        <label>Address</label>
-        <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
-        <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
+  html += `
+  <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px;">
+    <button class="btn btn-ghost btn-sm" id="toggleEditLeadBtn">Edit Lead Details</button>
+    <div class="assign-block hidden" id="editLeadForm" style="margin-top:10px;">
+      <label>Name</label>
+      <input type="text" id="editLeadName" value="${esc(lead.name)}">
+      <label>Phone number</label>
+      <div class="phone-input-group">
+        <span class="phone-prefix">+91</span>
+        <input type="tel" id="editLeadPhone" value="${esc(lead.phone)}">
       </div>
-      <button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>
-    </div>`;
-  }
+      <label>Address</label>
+      <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
+      <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
+    </div>
+    ${isHead ? `<button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>` : ''}
+  </div>`;
 
   return html;
 }
@@ -3559,6 +3557,7 @@ function bindDeleteLeadCardButtons(){
   document.querySelectorAll('.deleteLeadCardBtn').forEach(btn=>{
     btn.addEventListener('click', async (e)=>{
       e.stopPropagation();
+      if(SESSION.role!=='head'){ toast('Only a Head can delete a lead'); return; }
       const id = btn.dataset.leadId, name = btn.dataset.leadName;
       if(!confirm(`Permanently delete the lead "${name}"? This cannot be undone.`)) return;
       LEADS = LEADS.filter(l=>l.id!==id);
@@ -4113,6 +4112,7 @@ function bindModalHandlers(lead){
   const deleteLeadBtn = document.getElementById('deleteLeadBtn');
   if(deleteLeadBtn){
     deleteLeadBtn.addEventListener('click', async ()=>{
+      if(SESSION.role!=='head'){ toast('Only a Head can delete a lead'); return; }
       if(!confirm(`Permanently delete the lead "${deleteLeadBtn.dataset.leadName}"? This cannot be undone.`)) return;
       LEADS = LEADS.filter(l=>l.id!==deleteLeadBtn.dataset.leadId);
       await saveLeads(LEADS);

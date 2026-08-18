@@ -3159,6 +3159,41 @@ function entryWhoLabel(e){
   return label;
 }
 
+function renderNeedsFollowupResults(needsFollowup, filterVal){
+  let list = needsFollowup;
+  if(filterVal==='reception'){
+    list = list.filter(l=> !leadHasAssignments(l));
+  } else if(filterVal.startsWith('sales:')){
+    const [, team, name] = filterVal.split(':');
+    list = list.filter(l=> (l.assignments||[]).some(a=> a.team===team && a.salesperson===name && !assignmentHasPlan(a)));
+  }
+  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'Everyone active has a follow-up plan in place.'}</div>`;
+  return list.map(l=>{
+    const assignments = l.assignments||[];
+    const missing = assignments.filter(a=> !assignmentHasPlan(a));
+    const covered = assignments.filter(a=> assignmentHasPlan(a));
+    return `
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(l.name)}</div>
+          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
+          ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: needs follow-up</span>`).join('')}
+            </div>
+            ${covered.length ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              ${covered.map(a=>`<span class="team-tag" style="background:#9aa39c;">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${a.nextFollowUp?' (has plan)':''}</span>`).join('')}
+            </div>` : ''}
+          `}
+        </div>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View</button>
+      </div>
+    </div>`;
+  }).join('');
+}
 function viewReports(){
   const today = todayStr();
   const groups = groupTodayActivityByLead();
@@ -3172,6 +3207,7 @@ function viewReports(){
     .filter(g=>g.entries.length);
 
   const needsFollowup = LEADS.filter(leadCurrentlyNeedsFollowup).sort((a,b)=>a.name.localeCompare(b.name));
+  const salespeopleForFilter = allSalespeopleList();
 
   return `
   <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
@@ -3202,32 +3238,12 @@ function viewReports(){
       </div>`).join('')}
 
   <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
-  ${needsFollowup.length===0 ? `<div class="empty">Everyone active has a follow-up plan in place.</div>` :
-    needsFollowup.map(l=>{
-      const assignments = l.assignments||[];
-      const missing = assignments.filter(a=> !assignmentHasPlan(a));
-      const covered = assignments.filter(a=> assignmentHasPlan(a));
-      return `
-      <div class="card">
-        <div class="card-row">
-          <div>
-            <div class="lead-name">${esc(l.name)}</div>
-            <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
-            ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
-              <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-                ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]}: needs follow-up</span>`).join('')}
-              </div>
-              ${covered.length ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-                ${covered.map(a=>`<span class="team-tag" style="background:#9aa39c;">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${a.nextFollowUp?' (has plan)':''}</span>`).join('')}
-              </div>` : ''}
-            `}
-          </div>
-        </div>
-        <div class="row-btns">
-          <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View</button>
-        </div>
-      </div>`;
-    }).join('')}
+  <select id="needsFollowupFilter" style="margin-bottom:10px;">
+    <option value="">All (Reception + Sales)</option>
+    <option value="reception">Reception (Not Referred)</option>
+    ${salespeopleForFilter.map(p=>`<option value="sales:${p.team}:${esc(p.name)}">${esc(p.name)} — ${TEAM_LABELS[p.team]}</option>`).join('')}
+  </select>
+  <div id="needsFollowupResults">${renderNeedsFollowupResults(needsFollowup, '')}</div>
   `;
 }
 
@@ -3971,6 +3987,17 @@ function bindDynamicHandlers(){
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
+
+  const needsFollowupFilter = document.getElementById('needsFollowupFilter');
+  if(needsFollowupFilter){
+    needsFollowupFilter.addEventListener('change', ()=>{
+      const needsFollowup = LEADS.filter(leadCurrentlyNeedsFollowup).sort((a,b)=>a.name.localeCompare(b.name));
+      document.getElementById('needsFollowupResults').innerHTML = renderNeedsFollowupResults(needsFollowup, needsFollowupFilter.value);
+      document.querySelectorAll('[data-open-lead]').forEach(el=>{
+        el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+      });
+    });
+  }
 
   const weekStartInput = document.getElementById('weekStartInput');
   const weekEndInput = document.getElementById('weekEndInput');

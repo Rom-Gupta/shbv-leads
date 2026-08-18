@@ -3051,6 +3051,13 @@ function bindRangeLeadsFilters(prefix, range){
   const sourceSel = document.getElementById(prefix+'FilterSource');
   const citySel = document.getElementById(prefix+'FilterCity');
   if(!search && !team && !status && !sales) return;
+  function repopulateSalesFilterR(teamVal){
+    if(!sales) return;
+    const options = teamVal
+      ? (STAFF[teamVal]||[]).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')
+      : allSalespeopleList().map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('');
+    sales.innerHTML = `<option value="">All salesmen</option>` + options;
+  }
   function refresh(){
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
       filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'');
@@ -3060,7 +3067,7 @@ function bindRangeLeadsFilters(prefix, range){
     bindDeleteLeadCardButtons();
   }
   if(search) search.addEventListener('input', refresh);
-  if(team) team.addEventListener('change', refresh);
+  if(team) team.addEventListener('change', ()=>{ repopulateSalesFilterR(team.value); refresh(); });
   if(status) status.addEventListener('change', refresh);
   if(sales) sales.addEventListener('change', refresh);
   if(company) company.addEventListener('change', refresh);
@@ -3991,6 +3998,13 @@ function bindDynamicHandlers(){
   const filterUnreferred = document.getElementById('filterUnreferred');
   const filterSource = document.getElementById('filterSource');
   const filterCity = document.getElementById('filterCity');
+  function repopulateSalesFilter(teamVal){
+    if(!filterSales) return;
+    const options = teamVal
+      ? (STAFF[teamVal]||[]).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')
+      : allSalespeopleList().map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('');
+    filterSales.innerHTML = `<option value="">All salesmen</option>` + options;
+  }
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
       renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'');
@@ -4000,7 +4014,7 @@ function bindDynamicHandlers(){
     bindDeleteLeadCardButtons();
   }
   if(searchBox) searchBox.addEventListener('input', refreshResults);
-  if(filterTeam) filterTeam.addEventListener('change', refreshResults);
+  if(filterTeam) filterTeam.addEventListener('change', ()=>{ repopulateSalesFilter(filterTeam.value); refreshResults(); });
   if(filterStatus) filterStatus.addEventListener('change', refreshResults);
   if(filterSales) filterSales.addEventListener('change', refreshResults);
   if(filterCompany) filterCompany.addEventListener('change', refreshResults);

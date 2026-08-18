@@ -1650,7 +1650,7 @@ function headDueTodayCount(){
     (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) c++; });
     if(!leadHasAssignments(l)){
       const last = l.receptionLog?.length? l.receptionLog[l.receptionLog.length-1]:null;
-      if(!last || (last.status==='followup' && isDueToday(last.nextFollowUp))) c++;
+      if(last && last.status==='followup' && isDueToday(last.nextFollowUp)) c++;
     }
     return n+c;
   },0);
@@ -1697,7 +1697,7 @@ function viewHeadOverview(){
       (l.assignments||[]).forEach(a=>{ if((a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)) due=true; });
       if(!leadHasAssignments(l)){
         const last=l.receptionLog?.length?l.receptionLog[l.receptionLog.length-1]:null;
-        if(!last || (last.status==='followup'&&isDueToday(last.nextFollowUp))) due=true;
+        if(last && last.status==='followup' && isDueToday(last.nextFollowUp)) due=true;
       }
       return due;
     }).map(l=>leadCardHead(l)).join('')}

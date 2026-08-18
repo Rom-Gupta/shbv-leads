@@ -3487,6 +3487,15 @@ function renderLeadDetail(lead, focusAssignId, mode){
       </div>
       <label>Address</label>
       <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
+      <label>State</label>
+      <select id="editLeadState">
+        ${Object.keys(STATE_CITY_MAP).map(s=>`<option value="${s}" ${(lead.state||'Punjab')===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <label>City</label>
+      <div style="position:relative;">
+        <input type="text" id="editLeadCity" autocomplete="off" value="${esc(lead.city||'')}">
+        <div id="editLeadCitySuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+      </div>
       <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
     </div>
     ${isHead ? `<button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>` : ''}
@@ -4093,6 +4102,7 @@ function bindModalHandlers(lead){
       if(form) form.classList.toggle('hidden');
     });
   }
+  bindCityAutocompleteEls(document.getElementById('editLeadState'), document.getElementById('editLeadCity'), document.getElementById('editLeadCitySuggestions'));
   const saveEditLeadBtn = document.getElementById('saveEditLeadBtn');
   if(saveEditLeadBtn){
     saveEditLeadBtn.addEventListener('click', async ()=>{
@@ -4102,10 +4112,14 @@ function bindModalHandlers(lead){
       const name = document.getElementById('editLeadName').value.trim();
       const phone = document.getElementById('editLeadPhone').value.trim();
       const address = document.getElementById('editLeadAddress').value.trim();
+      const state = document.getElementById('editLeadState').value;
+      const city = document.getElementById('editLeadCity').value.trim();
       if(!name || !phone){ toast('Name and phone are required'); return; }
       target.name = name;
       target.phone = phone;
       target.address = address;
+      target.state = state;
+      target.city = city;
       await saveLeads(LEADS);
       toast('Lead details updated');
       closeModal();

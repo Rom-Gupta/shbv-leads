@@ -236,7 +236,6 @@
       <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
       <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
       <div class="role-btn" data-role="windows">Sales – Windows</div>
-      <div class="role-btn" data-role="assistant">Sales Assistant</div>
     </div>
   </div>
 
@@ -363,7 +362,7 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[], assistants:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
@@ -371,10 +370,9 @@ function normalizeStaffObj(s){
   ['reception','tiles','sanitary','kitchen','windows'].forEach(k=>{
     if(!Array.isArray(s[k])) s[k]=[];
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
+    s[k].forEach(p=>{ if(p.isAssistant && !Array.isArray(p.helping)) p.helping = []; });
   });
   if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
-  if(!Array.isArray(s.assistants)) s.assistants = [];
-  s.assistants.forEach(a=>{ if(!Array.isArray(a.helping)) a.helping = []; });
   if(!Array.isArray(s.heads) || s.heads.length!==3){
     s.heads = defaultStaff().heads;
   }
@@ -658,7 +656,7 @@ roleGrid.addEventListener('click', (e)=>{
 });
 
 function staffListForRole(role){
-  return role==='assistant' ? STAFF.assistants : (STAFF[role]||[]);
+  return STAFF[role]||[];
 }
 function renderNameCardBody(){
   const body = document.getElementById('nameCardBody');
@@ -668,7 +666,7 @@ function renderNameCardBody(){
     bindNameTypeahead('headNameInput', 'headNameSuggestions', STAFF.heads.map(h=>h.name), renderHeadPassArea);
   } else {
     document.getElementById('nameCardTitle').textContent =
-      pendingRole==='reception' ? 'Reception login' : (pendingRole==='assistant' ? 'Sales Assistant login' : `${TEAM_LABELS[pendingRole]} team login`);
+      pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
     const list = staffListForRole(pendingRole);
     if(!list.length){
       body.innerHTML = STORAGE_ERROR
@@ -770,7 +768,7 @@ function currentUserDueTodayCount(){
   if(!SESSION) return 0;
   if(SESSION.role==='reception') return receptionDueTodayCount();
   if(SESSION.role==='head') return headDueTodayCount() + myConnectionsDueTodayCount();
-  if(SESSION.role==='assistant') return assistantDueTodayLeads().length;
+  if(SESSION.isAssistant) return assistantDueTodayLeads().length;
   return dueTodayCountForMe();
 }
 // Shows a real OS-level browser notification once per person per day — never spams,
@@ -792,13 +790,14 @@ function checkAndNotifyDueToday(){
 }
 
 async function loginAs(role, name){
-  SESSION = {role, name};
+  const isAssistantAcct = role!=='head' && role!=='reception' && (staffListForRole(role).find(p=>p.name===name)||{}).isAssistant;
+  SESSION = {role, name, isAssistant: !!isAssistantAcct};
   KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
-  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : (role==='assistant' ? 'route' : 'myleads'));
+  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : (SESSION.isAssistant ? 'route' : 'myleads'));
   ACTIVE_SUBTAB = null;
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
-  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':(role==='assistant'?'Sales Assistant':TEAM_LABELS[role]+' Sales'));
+  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':(TEAM_LABELS[role]+' Sales'+(SESSION.isAssistant?' Assistant':'')));
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
   recordLastLogin(role, name);
   await saveStaff(STAFF);
@@ -889,7 +888,14 @@ setInterval(()=>{
 /* ---------------- Derived helpers ---------------- */
 /* ---------------- Sales Assistants (help one or more real salespeople) ---------------- */
 function myAssistantRecord(){
-  return STAFF.assistants.find(a=>a.name===SESSION.name);
+  return (STAFF[SESSION.role]||[]).find(a=>a.name===SESSION.name);
+}
+function allAssistants(){
+  const out = [];
+  ['tiles','sanitary','kitchen','windows'].forEach(dept=>{
+    (STAFF[dept]||[]).forEach(p=>{ if(p.isAssistant) out.push({name:p.name, team:dept}); });
+  });
+  return out;
 }
 function myHelpingList(){
   const rec = myAssistantRecord();
@@ -899,7 +905,7 @@ function isHelping(team, salesperson){
   return myHelpingList().some(h=>h.team===team && h.salesperson===salesperson);
 }
 function isMyAssignment(a){
-  if(SESSION.role==='assistant') return isHelping(a.team, a.salesperson);
+  if(SESSION.isAssistant) return isHelping(a.team, a.salesperson);
   return a.team===SESSION.role && a.salesperson===SESSION.name;
 }
 // Leads Reception has handed to this assistant, not yet routed to a real salesperson.
@@ -925,7 +931,7 @@ function assistantDueTodayLeads(){
 }
 // Attribution shown in log entries when an assistant acts on someone else's lead.
 function currentLogAuthor(a){
-  if(SESSION.role==='assistant') return `${SESSION.name} (for ${a.salesperson})`;
+  if(SESSION.isAssistant) return `${SESSION.name} (for ${a.salesperson})`;
   return SESSION.name;
 }
 function leadHasAssignments(lead){ return lead.assignments && lead.assignments.length>0; }
@@ -1118,7 +1124,7 @@ function tabsFor(role){
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'logins', label:'Manage Logins'},
   ];
-  if(role==='assistant') return [
+  if(SESSION && SESSION.isAssistant) return [
     {id:'route', label:'Leads to Route', badge:()=>assistantRoutingQueue().length},
     {id:'myleads', label:'Active Leads', badge:()=>assistantActiveLeads().length},
     {id:'due', label:'Due Today', badge:()=>assistantDueTodayLeads().length},
@@ -1211,7 +1217,7 @@ async function renderApp(){
     }
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
     else area.innerHTML = viewHeadOverview();
-  } else if(SESSION.role==='assistant'){
+  } else if(SESSION.isAssistant){
     if(ACTIVE_TAB==='route') area.innerHTML = viewAssistantRouteQueue();
     else if(ACTIVE_TAB==='myleads') area.innerHTML = viewAssistantLeads('active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewAssistantLeads('due');
@@ -1484,7 +1490,7 @@ function viewAssistantAllLeads(){
 function viewAssistantHelping(){
   const rec = myAssistantRecord();
   const helping = rec ? (rec.helping||[]) : [];
-  const allSalespeople = allSalespeopleList();
+  const allSalespeople = realSalespeopleList();
   return `
   <div class="lead-meta" style="margin-bottom:12px;">Pick anyone you're currently helping — you'll see their full leads (active and history) and can log calls on their behalf. Change this anytime, no approval needed.</div>
   <div class="card">
@@ -2422,13 +2428,18 @@ function viewManageLogins(){
     <select id="newLoginDept">
       <option value="reception">Reception</option>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">Sales – ${v}</option>`).join('')}
-      <option value="assistants">Sales Assistant</option>
     </select>
     <label>Name</label>
     <input type="text" id="newLoginName" placeholder="Full name">
     <label>Password</label>
     <input type="password" id="newLoginPass" placeholder="Set a password for them (min 4 characters)">
-    <button class="btn btn-primary btn-full" id="createLoginBtn">Create Login</button>
+    <div id="newLoginAssistantWrap">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+        <input type="checkbox" id="newLoginIsAssistant" style="width:auto;margin:0;">
+        This person is a Sales Assistant (helps other salespeople, not their own leads)
+      </label>
+    </div>
+    <button class="btn btn-primary btn-full" id="createLoginBtn" style="margin-top:10px;">Create Login</button>
   </div>
 
   <div class="section-title" style="margin-top:16px;">Heads</div>
@@ -2450,8 +2461,9 @@ function viewManageLogins(){
       <div class="card" style="padding:10px 14px;">
         <div class="card-row">
           <div>
-            <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
+            <div class="lead-name" style="font-size:14px;">${esc(p.name)} ${p.isAssistant?'<span class="badge badge-followup" style="margin-left:4px;">Assistant</span>':''}</div>
             <div class="lead-meta">${lastLoginText(p)}</div>
+            ${p.isAssistant ? `<div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>` : ''}
           </div>
           <div class="row-btns" style="margin-top:0;">
             <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="${dept}" data-name="${esc(p.name)}">Reset Password</button>
@@ -2461,23 +2473,6 @@ function viewManageLogins(){
       </div>
     `).join('') : `<div class="empty" style="padding:8px 0;">No logins yet.</div>`}
   `).join('')}
-
-  <div class="section-title" style="margin-top:16px;">Sales Assistants</div>
-  ${STAFF.assistants.length ? STAFF.assistants.map(p=>`
-    <div class="card" style="padding:10px 14px;">
-      <div class="card-row">
-        <div>
-          <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
-          <div class="lead-meta">${lastLoginText(p)}</div>
-          <div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>
-        </div>
-        <div class="row-btns" style="margin-top:0;">
-          <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="assistants" data-name="${esc(p.name)}">Reset Password</button>
-          <button class="btn btn-ghost btn-sm removeLoginBtn" data-dept="assistants" data-name="${esc(p.name)}">Remove</button>
-        </div>
-      </div>
-    </div>
-  `).join('') : `<div class="empty" style="padding:8px 0;">No Sales Assistant logins yet.</div>`}
 
   <div class="card" style="margin-top:16px;">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Marketing Persons</h3>
@@ -2508,17 +2503,28 @@ function viewManageLogins(){
 }
 
 function bindManageLoginsHandlers(){
+  const newLoginDeptSel = document.getElementById('newLoginDept');
+  const newLoginAssistantWrap = document.getElementById('newLoginAssistantWrap');
+  function toggleAssistantWrap(){
+    if(newLoginDeptSel && newLoginAssistantWrap){
+      newLoginAssistantWrap.classList.toggle('hidden', newLoginDeptSel.value==='reception');
+    }
+  }
+  if(newLoginDeptSel){ toggleAssistantWrap(); newLoginDeptSel.addEventListener('change', toggleAssistantWrap); }
+
   const createBtn = document.getElementById('createLoginBtn');
   if(createBtn){
     createBtn.addEventListener('click', async ()=>{
       const dept = document.getElementById('newLoginDept').value;
       const name = document.getElementById('newLoginName').value.trim();
       const pass = document.getElementById('newLoginPass').value;
+      const isAssistantChk = document.getElementById('newLoginIsAssistant');
+      const isAssistant = dept!=='reception' && isAssistantChk && isAssistantChk.checked;
       if(!name){ toast('Enter a name'); return; }
       if(!pass || pass.length<4){ toast('Password must be at least 4 characters'); return; }
       if(!STAFF[dept]) STAFF[dept]=[];
       if(STAFF[dept].some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists in this department'); return; }
-      STAFF[dept].push(dept==='assistants' ? {name, pass, helping:[]} : {name, pass});
+      STAFF[dept].push(isAssistant ? {name, pass, isAssistant:true, helping:[]} : {name, pass});
       await saveStaff(STAFF);
       toast(`Login created for ${name}`);
       renderApp();
@@ -2827,6 +2833,15 @@ function allSalespeopleList(){
   const out = [];
   ['tiles','sanitary','kitchen','windows'].forEach(dept=>{
     (STAFF[dept]||[]).forEach(p=> out.push({team:dept, name:p.name}));
+  });
+  return out.sort((a,b)=> a.name.localeCompare(b.name));
+}
+// Real, revenue-owning salespeople only — excludes anyone flagged as an assistant,
+// since assistants help real salespeople, not each other or themselves.
+function realSalespeopleList(){
+  const out = [];
+  ['tiles','sanitary','kitchen','windows'].forEach(dept=>{
+    (STAFF[dept]||[]).forEach(p=>{ if(!p.isAssistant) out.push({team:dept, name:p.name}); });
   });
   return out.sort((a,b)=> a.name.localeCompare(b.name));
 }
@@ -3268,7 +3283,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
       </div>
       <div class="row-btns">
         <button class="btn btn-brass" id="referBtn">${leadHasAssignments(lead) ? 'Refer to (another) Sales Team' : 'Refer to Sales Team'}</button>
-        ${(STAFF.assistants||[]).length ? `<button class="btn btn-ghost" id="handToAssistantBtn">📋 Hand to Assistant</button>` : ''}
+        ${allAssistants().length ? `<button class="btn btn-ghost" id="handToAssistantBtn">📋 Hand to Assistant</button>` : ''}
       </div>`;
     }
   } else if(isHead){
@@ -3426,7 +3441,7 @@ function openReferForm(leadId, fromAssignId, presetTeam){
     const note = document.getElementById('referNote').value.trim();
     const assignerName = SESSION.role==='head' ? `${SESSION.name} (Head)` :
       (SESSION.role==='reception' ? SESSION.name :
-      (SESSION.role==='assistant' ? `${SESSION.name} (Assistant)` : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`));
+      (SESSION.isAssistant ? `${SESSION.name} (Assistant)` : `${SESSION.name} (${TEAM_LABELS[SESSION.role]})`));
     const newAssign = {
       id: uid(), team, assignedAt: new Date().toISOString(), assignedBy: assignerName,
       salesperson: person, acknowledged:false, status:'pending', product:'',
@@ -3859,15 +3874,16 @@ function bindModalHandlers(lead){
   const handToAssistantBtn = document.getElementById('handToAssistantBtn');
   if(handToAssistantBtn){
     handToAssistantBtn.addEventListener('click', async ()=>{
-      const names = (STAFF.assistants||[]).map(a=>a.name);
-      if(!names.length){ toast('No Sales Assistant logins exist yet'); return; }
-      const picked = prompt(`Hand "${lead.name}" to which assistant?\n\n${names.join(', ')}\n\nType their exact name:`);
+      const assistants = allAssistants();
+      if(!assistants.length){ toast('No Sales Assistant logins exist yet'); return; }
+      const listText = assistants.map(a=>`${a.name} (${TEAM_LABELS[a.team]})`).join(', ');
+      const picked = prompt(`Hand "${lead.name}" to which assistant?\n\n${listText}\n\nType their exact name:`);
       if(!picked) return;
-      const match = names.find(n=>n.toLowerCase()===picked.trim().toLowerCase());
+      const match = assistants.find(a=>a.name.toLowerCase()===picked.trim().toLowerCase());
       if(!match){ toast('No exact match for that name'); return; }
-      lead.pendingAssistantRouting = match;
+      lead.pendingAssistantRouting = match.name;
       await saveLeads(LEADS);
-      toast(`Handed "${lead.name}" to ${match}`);
+      toast(`Handed "${lead.name}" to ${match.name}`);
       closeModal();
       renderApp();
     });

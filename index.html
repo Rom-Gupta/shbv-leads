@@ -269,6 +269,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-storage-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script>
 /* ---------------- Firebase config ---------------- */
@@ -281,11 +282,12 @@ const firebaseConfig = {
   appId: "1:1098083784943:web:2ff1da8ec50a2b9bae231a"
 };
 const USE_FIREBASE = typeof firebase !== 'undefined';
-let db = null, auth = null;
+let db = null, auth = null, storage = null;
 if(USE_FIREBASE){
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   auth = firebase.auth();
+  storage = firebase.storage();
 }
 function ensureAuth(){
   if(!USE_FIREBASE) return Promise.resolve();
@@ -293,6 +295,17 @@ function ensureAuth(){
     auth.onAuthStateChanged(user=>{ if(user) resolve(user); });
     auth.signInAnonymously().catch(reject);
   });
+}
+// Uploads a quotation photo to Firebase Storage and returns its public download URL.
+// Only this small URL string is ever saved onto the lead — never the image itself —
+// since all leads share one Firestore document and embedding images there risks
+// blowing past the 1MB document size limit and breaking the whole shared database.
+async function uploadQuotationImage(file, assignId){
+  if(!USE_FIREBASE || !storage) throw new Error('Storage not available');
+  const path = `quotations/${assignId}_${Date.now()}_${file.name}`;
+  const ref = storage.ref().child(path);
+  await ref.put(file);
+  return await ref.getDownloadURL();
 }
 
 /* ---------------- Storage helpers ---------------- */
@@ -491,6 +504,7 @@ function normalizeLead(l){
     if(a.meetingDate===undefined) a.meetingDate = null;
     if(a.meetingTime===undefined) a.meetingTime = null;
     if(a.pipelineStage===undefined) a.pipelineStage = null;
+    if(a.quotationImageUrl===undefined) a.quotationImageUrl = null;
     if(a.companyReferred===undefined) a.companyReferred = false;
     if(a.companyName===undefined) a.companyName = '';
     if(a.companyPersonName===undefined) a.companyPersonName = '';
@@ -3409,6 +3423,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}${a.meetingTime?` at ${fmtTime12(a.meetingTime)}`:''}`:''}</div>
         ${a.meetingDate && a.pipelineStage==='align_meeting' ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="kitchen" data-id="${a.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
         ${a.companyReferred ? `<div class="lead-meta" style="margin-top:2px;">🏢 Via company: <b>${esc(a.companyName||'—')}</b>${a.companyPersonName?` (${esc(a.companyPersonName)})`:''}</div>` : ''}
+        ${a.quotationImageUrl ? `<div class="lead-meta" style="margin-top:2px;">📄 <a href="${a.quotationImageUrl}" target="_blank" rel="noopener">View quotation</a></div>` : ''}
         ${mine && a.status!=='sale' && a.status!=='lost' ? `
           <button class="btn btn-ghost btn-sm toggleShareBtn" data-assign="${a.id}" style="margin-top:6px;">🔄 Share with Teammate</button>
           <div class="assign-block hidden" id="shareForm-${a.id}" style="margin-top:8px;">
@@ -3468,6 +3483,10 @@ function renderLeadDetail(lead, focusAssignId, mode){
             </div>
             <label>Remarks</label>
             <textarea class="assignRemarksInput" data-assign="${a.id}" placeholder="What happened at/after the visit?"></textarea>
+            <label>Quotation (optional)</label>
+            ${a.quotationImageUrl ? `<div class="lead-meta" style="margin-bottom:6px;">📄 <a href="${a.quotationImageUrl}" target="_blank" rel="noopener">View current quotation</a> — pick a new file below to replace it</div>` : ''}
+            <input type="file" accept="image/*" class="assignQuotationInput" data-assign="${a.id}" data-lead="${lead.id}">
+            <div class="lead-meta assignQuotationStatus-${a.id}" style="margin:4px 0 8px;"></div>
             <button class="btn btn-primary btn-sm saveAssignBtn" data-assign="${a.id}">Save Outcome</button>
             <button class="btn btn-ghost btn-sm referFromAssignBtn" data-assign="${a.id}" data-lead="${lead.id}" style="margin-left:6px;">Refer to another team</button>
           </div>
@@ -4056,6 +4075,32 @@ function bindModalHandlers(lead){
 
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
+
+  document.querySelectorAll('.assignQuotationInput').forEach(input=>{
+    input.addEventListener('change', async ()=>{
+      const file = input.files[0];
+      if(!file) return;
+      const aid = input.dataset.assign;
+      const leadId = input.dataset.lead;
+      const statusEl = document.querySelector(`.assignQuotationStatus-${aid}`);
+      if(statusEl) statusEl.textContent = 'Uploading...';
+      try{
+        const url = await uploadQuotationImage(file, aid);
+        const targetLead = LEADS.find(l=>l.id===leadId);
+        const targetAssign = targetLead && targetLead.assignments.find(x=>x.id===aid);
+        if(targetAssign){
+          targetAssign.quotationImageUrl = url;
+          await saveLeads(LEADS);
+        }
+        if(statusEl) statusEl.textContent = '✓ Quotation uploaded';
+        toast('Quotation uploaded');
+      }catch(e){
+        console.error('Quotation upload failed', e);
+        if(statusEl) statusEl.textContent = 'Upload failed — Firebase Storage may not be enabled for this project yet. Ask your admin to check the Firebase Console.';
+        toast('Upload failed');
+      }
+    });
+  });
 
   document.querySelectorAll('.toggleShareBtn').forEach(btn=>{
     btn.addEventListener('click', ()=>{

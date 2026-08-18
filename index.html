@@ -947,7 +947,7 @@ function crossSellPendingDepartments(lead){
   return Object.keys(TEAM_LABELS).filter(team=> !referredTeams.has(team) && !dismissed.has(team));
 }
 function crossSellOpportunityLeads(){
-  return LEADS.filter(l=> crossSellPendingDepartments(l).length>0);
+  return LEADS.filter(l=> leadHasAssignments(l) && crossSellPendingDepartments(l).length>0);
 }
 // Same idea, scoped to leads this specific salesperson is handling.
 function crossSellOpportunityLeadsForMe(){
@@ -1448,6 +1448,18 @@ function viewAddLead(){
         <div id="newLeadMarketingSuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
       </div>
     </div>
+    ${SESSION.role==='head' ? `
+    <div class="section-title" style="margin-top:16px;">Refer to Sales Team (optional)</div>
+    <label>Team</label>
+    <select id="newLeadTeam">
+      <option value="">— don't refer yet —</option>
+      ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select>
+    <div id="newLeadPersonWrap" class="hidden">
+      <label>Salesperson</label>
+      <select id="newLeadPersonSel"></select>
+    </div>
+    ` : ''}
     <button class="btn btn-primary btn-full" id="saveNewLeadBtn">Save Lead</button>
   </div>`;
 }
@@ -1643,6 +1655,18 @@ function headDueTodayCount(){
     return n+c;
   },0);
 }
+// A walk-in that's sat 24+ hours without being referred to any sales team — the
+// customer is physically standing there or already left, so this is urgent.
+function neglectedWalkins(){
+  const cutoff = Date.now() - 24*3600*1000;
+  return LEADS.filter(l=> l.source==='Walk-in' && !leadHasAssignments(l) && new Date(l.createdAt).getTime() < cutoff);
+}
+// A Physical Marketing lead (banner/flyer/etc.) that's sat 30+ days without being
+// referred — these trickle in slower, so the bar for "neglected" is longer.
+function neglectedMarketingLeads(){
+  const cutoff = Date.now() - 30*24*3600*1000;
+  return LEADS.filter(l=> l.source==='Physical Marketing' && !leadHasAssignments(l) && new Date(l.createdAt).getTime() < cutoff);
+}
 function viewHeadOverview(){
   const total = LEADS.length;
   const today = LEADS.filter(l=>l.createdAt.slice(0,10)===todayStr()).length;
@@ -1677,6 +1701,22 @@ function viewHeadOverview(){
       }
       return due;
     }).map(l=>leadCardHead(l)).join('')}
+
+  ${(()=>{
+    const walkins = neglectedWalkins();
+    const marketing = neglectedMarketingLeads();
+    if(!walkins.length && !marketing.length) return '';
+    let html = '';
+    if(walkins.length){
+      html += `<div class="section-title" style="margin-top:14px;color:var(--bad);">⚠ Walk-ins Not Referred (24h+)</div>`;
+      html += walkins.map(l=>leadCardHead(l)).join('');
+    }
+    if(marketing.length){
+      html += `<div class="section-title" style="margin-top:14px;color:var(--warn);">⚠ Physical Marketing Not Referred (30+ days)</div>`;
+      html += marketing.map(l=>leadCardHead(l)).join('');
+    }
+    return html;
+  })()}
 
   <div class="section-title" style="margin-top:20px;">Stale Leads (No Activity 3+ Days)</div>
   ${staleLeads.length===0 ? `<div class="empty">Nothing sitting idle right now.</div>` :
@@ -2850,6 +2890,7 @@ function viewAllLeads(){
   const marketingCounts = {};
   LEADS.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
   const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
+  const cities = Array.from(new Set(LEADS.map(l=>l.city).filter(Boolean))).sort();
   return `
   <div class="searchbar"><input type="text" id="searchBox" placeholder="Search by name or phone..."></div>
   <div class="filter-row">
@@ -2875,11 +2916,24 @@ function viewAllLeads(){
       <option value="">Marketing person: All</option>
       ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)} (${marketingCounts[n]||0})</option>`).join('')}
     </select>` : ''}
+    <select id="filterUnreferred">
+      <option value="">Referral status: All</option>
+      <option value="yes">Not referred yet</option>
+    </select>
+    <select id="filterSource">
+      <option value="">All sources</option>
+      ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+    </select>
+    ${cities.length ? `
+    <select id="filterCity">
+      <option value="">All cities</option>
+      ${cities.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+    </select>` : ''}
   </div>
-  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','')}</div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','')}</div>
   `;
 }
-function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter){
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -2903,11 +2957,20 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
   if(marketingFilter){
     list = list.filter(l=> l.marketingPersonName===marketingFilter);
   }
+  if(unreferredFilter==='yes'){
+    list = list.filter(l=> !leadHasAssignments(l));
+  }
+  if(sourceFilter){
+    list = list.filter(l=> l.source===sourceFilter);
+  }
+  if(cityFilter){
+    list = list.filter(l=> (l.city||'').toLowerCase()===cityFilter.toLowerCase());
+  }
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return list.map(l=>leadCardHead(l)).join('');
 }
-function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter){
-  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter);
+function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter){
+  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -2926,6 +2989,7 @@ function rangeLeadsFilterPanel(prefix, range){
   const marketingCounts = {};
   rangeLeads.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
   const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
+  const cities = Array.from(new Set(rangeLeads.map(l=>l.city).filter(Boolean))).sort();
   return `
   <div class="section-title" style="margin-top:24px;">All Leads In This Period</div>
   <div class="searchbar"><input type="text" id="${prefix}SearchBox" placeholder="Search by name or phone..."></div>
@@ -2952,8 +3016,21 @@ function rangeLeadsFilterPanel(prefix, range){
       <option value="">Marketing person: All</option>
       ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)} (${marketingCounts[n]||0})</option>`).join('')}
     </select>` : ''}
+    <select id="${prefix}FilterUnreferred">
+      <option value="">Referral status: All</option>
+      <option value="yes">Not referred yet</option>
+    </select>
+    <select id="${prefix}FilterSource">
+      <option value="">All sources</option>
+      ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+    </select>
+    ${cities.length ? `
+    <select id="${prefix}FilterCity">
+      <option value="">All cities</option>
+      ${cities.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+    </select>` : ''}
   </div>
-  <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '')}</div>
+  <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '', '', '', '')}</div>
   `;
 }
 function bindRangeLeadsFilters(prefix, range){
@@ -2963,10 +3040,13 @@ function bindRangeLeadsFilters(prefix, range){
   const sales = document.getElementById(prefix+'FilterSales');
   const company = document.getElementById(prefix+'FilterCompany');
   const marketing = document.getElementById(prefix+'FilterMarketing');
+  const unreferred = document.getElementById(prefix+'FilterUnreferred');
+  const sourceSel = document.getElementById(prefix+'FilterSource');
+  const citySel = document.getElementById(prefix+'FilterCity');
   if(!search && !team && !status && !sales) return;
   function refresh(){
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
-      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'');
+      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -2978,6 +3058,9 @@ function bindRangeLeadsFilters(prefix, range){
   if(sales) sales.addEventListener('change', refresh);
   if(company) company.addEventListener('change', refresh);
   if(marketing) marketing.addEventListener('change', refresh);
+  if(unreferred) unreferred.addEventListener('change', refresh);
+  if(sourceSel) sourceSel.addEventListener('change', refresh);
+  if(citySel) citySel.addEventListener('change', refresh);
 }
 
 function leadCardHead(l){
@@ -3312,6 +3395,18 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <div class="lead-meta" style="margin-top:4px;">Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)} ${a.product?`· Product interest: ${esc(a.product)}`:''} ${a.meetingDate?`· Meeting: ${fmtDate(a.meetingDate)}${a.meetingTime?` at ${fmtTime12(a.meetingTime)}`:''}`:''}</div>
         ${a.meetingDate && a.pipelineStage==='align_meeting' ? `<button class="btn btn-ghost btn-sm addToCalendarBtn" data-source="kitchen" data-id="${a.id}" style="margin-top:6px;">📅 Add to Calendar</button>` : ''}
         ${a.companyReferred ? `<div class="lead-meta" style="margin-top:2px;">🏢 Via company: <b>${esc(a.companyName||'—')}</b>${a.companyPersonName?` (${esc(a.companyPersonName)})`:''}</div>` : ''}
+        ${mine && a.status!=='sale' && a.status!=='lost' ? `
+          <button class="btn btn-ghost btn-sm toggleShareBtn" data-assign="${a.id}" style="margin-top:6px;">🔄 Share with Teammate</button>
+          <div class="assign-block hidden" id="shareForm-${a.id}" style="margin-top:8px;">
+            <label>Hand this lead to</label>
+            <select class="shareTeammateSel" data-assign="${a.id}" data-team="${a.team}">
+              ${(STAFF[a.team]||[]).filter(p=>!p.isAssistant && p.name!==a.salesperson).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
+            </select>
+            <label>Note (optional)</label>
+            <textarea class="shareNote" data-assign="${a.id}" placeholder="e.g. I'm off today, please take this one"></textarea>
+            <button class="btn btn-brass btn-sm confirmShareBtn" data-assign="${a.id}" data-lead-id="${lead.id}">Confirm Share</button>
+          </div>
+        ` : ''}
         ${isHead ? `<button class="btn btn-ghost btn-sm removeAssignBtn" data-lead-id="${lead.id}" data-assign-id="${a.id}" data-team-label="${esc(TEAM_LABELS[a.team])}" data-person="${esc(a.salesperson)}" style="margin-top:6px;color:var(--bad);">Remove this referral</button>` : ''}
         ${(a.log||[]).slice().reverse().map(log=>{
           const isFollowupLog = log.status==='followup' || log.status==='no-followup';
@@ -3776,6 +3871,19 @@ function bindDynamicHandlers(){
     newLeadMarketingInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadMarketingSuggestions.classList.add('hidden'), 150); });
   }
 
+  const newLeadTeamSel = document.getElementById('newLeadTeam');
+  const newLeadPersonWrap = document.getElementById('newLeadPersonWrap');
+  const newLeadPersonSel = document.getElementById('newLeadPersonSel');
+  if(newLeadTeamSel){
+    newLeadTeamSel.addEventListener('change', ()=>{
+      const team = newLeadTeamSel.value;
+      if(!team){ newLeadPersonWrap.classList.add('hidden'); return; }
+      const list = (STAFF[team]||[]).filter(p=>!p.isAssistant);
+      newLeadPersonSel.innerHTML = list.length ? list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('') : `<option value="">— no login for this team yet —</option>`;
+      newLeadPersonWrap.classList.remove('hidden');
+    });
+  }
+
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
     saveNewLeadBtn.addEventListener('click', async ()=>{
@@ -3795,6 +3903,8 @@ function bindDynamicHandlers(){
         if(!proceed) return;
       }
       const isSalesAdding = SESSION.role!=='reception' && SESSION.role!=='head';
+      const referTeam = SESSION.role==='head' ? (document.getElementById('newLeadTeam')?.value||'') : '';
+      const referPerson = SESSION.role==='head' ? (document.getElementById('newLeadPersonSel')?.value||'') : '';
       const lead = {
         id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName,
         createdAt: new Date().toISOString(), createdBy: SESSION.name,
@@ -3803,11 +3913,15 @@ function bindDynamicHandlers(){
           id: uid(), team: SESSION.role, assignedAt: new Date().toISOString(), assignedBy: SESSION.name,
           salesperson: SESSION.name, acknowledged:true, status:'pending', product:'',
           log:[{timestamp:new Date().toISOString(), author:SESSION.name, remarks:'Lead added directly by salesperson.', status:'pending'}]
-        }] : []
+        }] : (referTeam && referPerson ? [{
+          id: uid(), team: referTeam, assignedAt: new Date().toISOString(), assignedBy: `${SESSION.name} (Head)`,
+          salesperson: referPerson, acknowledged:false, status:'pending', product:'',
+          log:[{timestamp:new Date().toISOString(), author:`${SESSION.name} (Head)`, remarks:'Referred to team at creation.', status:'pending'}]
+        }] : [])
       };
       LEADS.push(lead);
       await saveLeads(LEADS);
-      toast('Lead saved');
+      toast(referTeam && referPerson ? `Lead saved and referred to ${TEAM_LABELS[referTeam]} – ${referPerson}` : 'Lead saved');
       ACTIVE_TAB = isSalesAdding ? 'myleads' : (SESSION.role==='head' ? 'leads' : 'inbox');
       if(SESSION.role==='head') ACTIVE_SUBTAB = 'all';
       renderApp();
@@ -3820,9 +3934,12 @@ function bindDynamicHandlers(){
   const filterSales = document.getElementById('filterSales');
   const filterCompany = document.getElementById('filterCompany');
   const filterMarketing = document.getElementById('filterMarketing');
+  const filterUnreferred = document.getElementById('filterUnreferred');
+  const filterSource = document.getElementById('filterSource');
+  const filterCity = document.getElementById('filterCity');
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'');
+      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -3834,6 +3951,9 @@ function bindDynamicHandlers(){
   if(filterSales) filterSales.addEventListener('change', refreshResults);
   if(filterCompany) filterCompany.addEventListener('change', refreshResults);
   if(filterMarketing) filterMarketing.addEventListener('change', refreshResults);
+  if(filterUnreferred) filterUnreferred.addEventListener('change', refreshResults);
+  if(filterSource) filterSource.addEventListener('change', refreshResults);
+  if(filterCity) filterCity.addEventListener('change', refreshResults);
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
@@ -3870,6 +3990,38 @@ function bindModalHandlers(lead){
 
   const referBtn = document.getElementById('referBtn');
   if(referBtn) referBtn.addEventListener('click', ()=> openReferForm(lead.id));
+
+  document.querySelectorAll('.toggleShareBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const form = document.getElementById(`shareForm-${btn.dataset.assign}`);
+      if(form) form.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.confirmShareBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const assignId = btn.dataset.assign;
+      const targetLead = LEADS.find(l=>l.id===btn.dataset.leadId);
+      const a = targetLead && targetLead.assignments.find(x=>x.id===assignId);
+      if(!a) return;
+      const teammateSel = document.querySelector(`.shareTeammateSel[data-assign="${assignId}"]`);
+      const newPerson = teammateSel ? teammateSel.value : '';
+      if(!newPerson){ toast('No teammate to share with'); return; }
+      const note = document.querySelector(`.shareNote[data-assign="${assignId}"]`).value.trim();
+      const fromPerson = a.salesperson;
+      a.salesperson = newPerson;
+      a.acknowledged = false;
+      if(!a.log) a.log = [];
+      a.log.push({
+        timestamp:new Date().toISOString(), author:SESSION.name,
+        remarks: `Handed off from ${fromPerson} to ${newPerson}${note?`: "${note}"`:''}`,
+        status: a.status
+      });
+      await saveLeads(LEADS);
+      toast(`Shared with ${newPerson}`);
+      closeModal();
+      renderApp();
+    });
+  });
 
   const handToAssistantBtn = document.getElementById('handToAssistantBtn');
   if(handToAssistantBtn){

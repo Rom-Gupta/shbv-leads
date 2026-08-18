@@ -3473,7 +3473,20 @@ function renderLeadDetail(lead, focusAssignId, mode){
   if(isHead){
     html += `
     <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px;">
-      <button class="btn btn-sm" style="background:var(--bad);color:#fff;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>
+      <button class="btn btn-ghost btn-sm" id="toggleEditLeadBtn">Edit Lead Details</button>
+      <div class="assign-block hidden" id="editLeadForm" style="margin-top:10px;">
+        <label>Name</label>
+        <input type="text" id="editLeadName" value="${esc(lead.name)}">
+        <label>Phone number</label>
+        <div class="phone-input-group">
+          <span class="phone-prefix">+91</span>
+          <input type="tel" id="editLeadPhone" value="${esc(lead.phone)}">
+        </div>
+        <label>Address</label>
+        <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
+        <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
+      </div>
+      <button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>
     </div>`;
   }
 
@@ -4069,6 +4082,33 @@ function bindModalHandlers(lead){
       renderApp();
     });
   });
+
+  const toggleEditLeadBtn = document.getElementById('toggleEditLeadBtn');
+  if(toggleEditLeadBtn){
+    toggleEditLeadBtn.addEventListener('click', ()=>{
+      const form = document.getElementById('editLeadForm');
+      if(form) form.classList.toggle('hidden');
+    });
+  }
+  const saveEditLeadBtn = document.getElementById('saveEditLeadBtn');
+  if(saveEditLeadBtn){
+    saveEditLeadBtn.addEventListener('click', async ()=>{
+      const id = saveEditLeadBtn.dataset.leadId;
+      const target = LEADS.find(l=>l.id===id);
+      if(!target) return;
+      const name = document.getElementById('editLeadName').value.trim();
+      const phone = document.getElementById('editLeadPhone').value.trim();
+      const address = document.getElementById('editLeadAddress').value.trim();
+      if(!name || !phone){ toast('Name and phone are required'); return; }
+      target.name = name;
+      target.phone = phone;
+      target.address = address;
+      await saveLeads(LEADS);
+      toast('Lead details updated');
+      closeModal();
+      openLeadModal(id, null, 'view', null);
+    });
+  }
 
   const deleteLeadBtn = document.getElementById('deleteLeadBtn');
   if(deleteLeadBtn){

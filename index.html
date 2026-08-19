@@ -1683,10 +1683,13 @@ function viewAssistantHelping(){
 // Post-sale progress card for a Kitchen lead — shows completed stages, the
 // current stage with a way to mark it done + schedule the next stage's date.
 function postSaleCard(lead, a){
-  const idx = a.postSaleStage ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
-  const currentStage = idx>=0 ? POST_SALE_STAGE_ORDER[idx] : POST_SALE_STAGE_ORDER[0];
+  // a.postSaleStage = the last COMPLETED stage, or null if nothing's been done yet,
+  // or 'completed' once every stage is finished. The stage still waiting on action
+  // is whatever comes right after the last completed one.
   const isComplete = a.postSaleStage==='completed';
-  const doneStages = isComplete ? POST_SALE_STAGE_ORDER : POST_SALE_STAGE_ORDER.slice(0, idx+1);
+  const lastDoneIdx = (a.postSaleStage && !isComplete) ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+  const pendingStage = isComplete ? null : POST_SALE_STAGE_ORDER[lastDoneIdx+1];
+  const doneStages = isComplete ? POST_SALE_STAGE_ORDER : POST_SALE_STAGE_ORDER.slice(0, lastDoneIdx+1);
   return `
   <div class="card">
     <div class="card-row">
@@ -1695,17 +1698,17 @@ function postSaleCard(lead, a){
         <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
       </div>
     </div>
-    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+    ${doneStages.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
       ${doneStages.map(s=>`<span class="team-tag" style="background:#3D6B4A;">✓ ${POST_SALE_STAGE_LABELS[s]}</span>`).join('')}
-    </div>
+    </div>` : `<div class="lead-meta" style="margin-top:8px;">No step done yet</div>`}
     ${isComplete ? `<div class="lead-meta" style="margin-top:8px;color:var(--ok);font-weight:600;">✓ All post-sale steps complete</div>` : `
       <div class="assign-block" style="margin-top:10px;">
-        <div class="section-title" style="margin:0 0 6px;">Current: ${POST_SALE_STAGE_LABELS[currentStage]}</div>
+        <div class="section-title" style="margin:0 0 6px;">Next: ${POST_SALE_STAGE_LABELS[pendingStage]}</div>
         <label>Date for next step</label>
         <input type="date" class="postSaleNextDateInput" data-assign="${a.id}" data-lead="${lead.id}" value="${a.postSaleNextDate||''}">
         <label>Note (optional)</label>
         <textarea class="postSaleNoteInput" data-assign="${a.id}" placeholder="Anything worth noting about this step"></textarea>
-        <button class="btn btn-brass btn-sm markPostSaleDoneBtn" data-assign="${a.id}" data-lead="${lead.id}">Mark "${POST_SALE_STAGE_LABELS[currentStage]}" Done</button>
+        <button class="btn btn-brass btn-sm markPostSaleDoneBtn" data-assign="${a.id}" data-lead="${lead.id}">Mark "${POST_SALE_STAGE_LABELS[pendingStage]}" Done</button>
       </div>
       ${a.postSaleNextDate ? `<div class="lead-meta" style="margin-top:6px;">Next step expected: <b>${fmtDate(a.postSaleNextDate)}</b></div>` : ''}
     `}
@@ -4018,20 +4021,21 @@ function bindDynamicHandlers(){
       const noteEl = document.querySelector(`.postSaleNoteInput[data-assign="${assignId}"]`);
       const nextDate = nextDateEl ? nextDateEl.value : '';
       const note = noteEl ? noteEl.value.trim() : '';
-      const currentIdx = a.postSaleStage ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
-      const currentStage = currentIdx>=0 ? POST_SALE_STAGE_ORDER[currentIdx] : POST_SALE_STAGE_ORDER[0];
+      // a.postSaleStage holds the last COMPLETED stage (null = nothing done yet), so
+      // the stage this button is marking done is whatever comes right after it.
+      const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+      const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
       if(!a.postSaleLog) a.postSaleLog = [];
-      a.postSaleLog.push({stage:currentStage, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
-      const nextIdx = currentIdx+1;
-      if(nextIdx >= POST_SALE_STAGE_ORDER.length){
+      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+      if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
         a.postSaleStage = 'completed';
         a.postSaleNextDate = null;
       } else {
-        a.postSaleStage = POST_SALE_STAGE_ORDER[nextIdx];
+        a.postSaleStage = stageBeingMarked;
         a.postSaleNextDate = nextDate || null;
       }
       await saveLeads(LEADS);
-      toast(`${POST_SALE_STAGE_LABELS[currentStage]} marked done`);
+      toast(`${POST_SALE_STAGE_LABELS[stageBeingMarked]} marked done`);
       renderApp();
     });
   });
@@ -4768,7 +4772,6 @@ function bindModalHandlers(lead){
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
       // updating the outcome should never silently cancel or change a scheduled follow-up.
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
-      if(status==='sale' && a.team==='kitchen' && !a.postSaleStage) a.postSaleStage = POST_SALE_STAGE_ORDER[0];
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:currentLogAuthor(a), remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is resolved (Sale Done or Lost): auto-schedule a

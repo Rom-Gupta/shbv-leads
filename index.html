@@ -1082,6 +1082,18 @@ function tomorrowStr(){
   const d = new Date(); d.setDate(d.getDate()+1);
   return d.toISOString().slice(0,10);
 }
+// A lead referred to this salesperson that's just sitting there with nothing
+// scheduled — still "Pending Visit" and never even logged, or "Visited" with no
+// follow-up date set. Either way, nothing is planned, so it needs attention same
+// as an overdue follow-up call does. (Sold/Lost/meeting-booked leads are excluded
+// via assignmentHasPlan — this only catches genuinely untouched ones.)
+function noPlanAssignmentsForMe(){
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status!=='sale' && a.status!=='lost' && !assignmentHasPlan(a)) out.push({lead:l, a});
+  }));
+  return out;
+}
 function dueTodayCountForMe(){
   let n=0;
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
@@ -1089,6 +1101,7 @@ function dueTodayCountForMe(){
   }));
   n += meetingDueAssignmentsForMe().length;
   n += postSaleDueAssignmentsForMe().length;
+  n += noPlanAssignmentsForMe().length;
   return n;
 }
 // Kitchen-only: leads sitting at the final pre-sale pipeline stage (quotation
@@ -1743,6 +1756,11 @@ function viewMyLeads(mode){
     // Fold in meetings that are due (today or overdue) without double-listing an
     // assignment that's already there for a regular follow-up reason.
     meetingDueAssignmentsForMe().forEach(({lead,a})=>{
+      if(!assigns.some(x=>x.a.id===a.id)) assigns.push({lead,a});
+    });
+    // Fold in anything referred with nothing planned yet — still Pending Visit and
+    // never even logged, or Visited with no follow-up date set.
+    noPlanAssignmentsForMe().forEach(({lead,a})=>{
       if(!assigns.some(x=>x.a.id===a.id)) assigns.push({lead,a});
     });
     // Post-sale next-step dates use their own card (postSaleCard), not the normal

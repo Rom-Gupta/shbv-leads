@@ -3061,35 +3061,7 @@ function viewWeeklyReport(){
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
-  if(!salesEntries.length){
-    html += `<div class="empty">No sales activity in this range.</div>`;
-  } else {
-    salesEntries.forEach(s=>{
-      html += `
-      <div class="card">
-        <div class="card-row">
-          <div>
-            <div class="lead-name">${esc(s.name)}</div>
-            <div class="lead-meta">${TEAM_LABELS[s.team]} team</div>
-          </div>
-          <div style="text-align:right;font-size:12.5px;">
-            <div><b>${s.followupCalls.length}</b> follow-ups</div>
-            <div style="color:var(--brass);"><b>${s.partial}</b> partial</div>
-            <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
-            <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
-          </div>
-        </div>
-        ${s.followupCalls.length ? `
-          <div class="section-title" style="margin:10px 0 4px;">Follow-up calls this period</div>
-          ${s.followupCalls.slice().reverse().map(c=>`
-            <div class="log-entry">
-              <div class="meta">${esc(c.leadName)} · ${fmtDateTime(c.date)}</div>
-              ${esc(c.remarks)} ${c.nextFollowUp?`<div class="meta">Next call: ${fmtDate(c.nextFollowUp)}</div>`:''}
-            </div>`).join('')}
-        ` : ''}
-      </div>`;
-    });
-  }
+  html += bySalespersonFilterPanel('wk', salesEntries);
   html += rangeLeadsFilterPanel('wk', range);
   return html;
 }
@@ -3144,35 +3116,7 @@ function viewMonthlyReport(){
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
-  if(!salesEntries.length){
-    html += `<div class="empty">No sales activity in this range.</div>`;
-  } else {
-    salesEntries.forEach(s=>{
-      html += `
-      <div class="card">
-        <div class="card-row">
-          <div>
-            <div class="lead-name">${esc(s.name)}</div>
-            <div class="lead-meta">${TEAM_LABELS[s.team]} team</div>
-          </div>
-          <div style="text-align:right;font-size:12.5px;">
-            <div><b>${s.followupCalls.length}</b> follow-ups</div>
-            <div style="color:var(--brass);"><b>${s.partial}</b> partial</div>
-            <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
-            <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
-          </div>
-        </div>
-        ${s.followupCalls.length ? `
-          <div class="section-title" style="margin:10px 0 4px;">Follow-up calls this period</div>
-          ${s.followupCalls.slice().reverse().map(c=>`
-            <div class="log-entry">
-              <div class="meta">${esc(c.leadName)} · ${fmtDateTime(c.date)}</div>
-              ${esc(c.remarks)} ${c.nextFollowUp?`<div class="meta">Next call: ${fmtDate(c.nextFollowUp)}</div>`:''}
-            </div>`).join('')}
-        ` : ''}
-      </div>`;
-    });
-  }
+  html += bySalespersonFilterPanel('mo', salesEntries);
   html += rangeLeadsFilterPanel('mo', range);
   return html;
 }
@@ -3345,6 +3289,73 @@ function rangeLeadsFilterPanel(prefix, range){
   </div>
   <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '', '', '', '')}</div>
   `;
+}
+function renderBySalespersonResults(salesEntries, filterVal){
+  let list = salesEntries;
+  if(filterVal.startsWith('team:')){
+    const parts = filterVal.split(':');
+    const team = parts[1], name = parts[2];
+    list = list.filter(s=> s.team===team && (!name || s.name===name));
+  }
+  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No sales activity in this range.'}</div>`;
+  return list.map(s=>`
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="lead-name">${esc(s.name)}</div>
+          <div class="lead-meta">${TEAM_LABELS[s.team]} team</div>
+        </div>
+        <div style="text-align:right;font-size:12.5px;">
+          <div><b>${s.followupCalls.length}</b> follow-ups</div>
+          <div style="color:var(--brass);"><b>${s.partial}</b> partial</div>
+          <div style="color:var(--ok);"><b>${s.sale}</b> sold</div>
+          <div style="color:var(--bad);"><b>${s.lost}</b> loose</div>
+        </div>
+      </div>
+      ${s.followupCalls.length ? `
+        <div class="section-title" style="margin:10px 0 4px;">Follow-up calls this period</div>
+        ${s.followupCalls.slice().reverse().map(c=>`
+          <div class="log-entry">
+            <div class="meta">${esc(c.leadName)} · ${fmtDateTime(c.date)}</div>
+            ${esc(c.remarks)} ${c.nextFollowUp?`<div class="meta">Next call: ${fmtDate(c.nextFollowUp)}</div>`:''}
+          </div>`).join('')}
+      ` : ''}
+    </div>`).join('');
+}
+function bySalespersonFilterPanel(prefix, salesEntries){
+  return `
+  <select id="${prefix}SalesDeptFilter" style="margin-bottom:10px;">
+    <option value="">All Teams</option>
+    ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+  </select>
+  <div id="${prefix}SalesPersonWrap" class="hidden">
+    <select id="${prefix}SalesPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="${prefix}BySalesResults">${renderBySalespersonResults(salesEntries, '')}</div>
+  `;
+}
+function bindBySalespersonFilters(prefix, range){
+  const deptSel = document.getElementById(prefix+'SalesDeptFilter');
+  const personWrap = document.getElementById(prefix+'SalesPersonWrap');
+  const personSel = document.getElementById(prefix+'SalesPersonFilter');
+  if(!deptSel) return;
+  function refresh(){
+    const stats = computeWeeklyStats(range.start, range.end);
+    const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+    const dept = deptSel.value;
+    const filterVal = dept ? (personSel.value ? `team:${dept}:${personSel.value}` : `team:${dept}`) : '';
+    document.getElementById(prefix+'BySalesResults').innerHTML = renderBySalespersonResults(salesEntries, filterVal);
+  }
+  deptSel.addEventListener('change', ()=>{
+    const dept = deptSel.value;
+    personWrap.classList.toggle('hidden', !dept);
+    if(dept){
+      const people = STAFF[dept]||[];
+      personSel.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` + people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+    }
+    refresh();
+  });
+  personSel.addEventListener('change', refresh);
 }
 function bindRangeLeadsFilters(prefix, range){
   const search = document.getElementById(prefix+'SearchBox');
@@ -4488,6 +4499,7 @@ function bindDynamicHandlers(){
   const exportWeeklyCsvBtn = document.getElementById('exportWeeklyCsvBtn');
   if(exportWeeklyCsvBtn) exportWeeklyCsvBtn.addEventListener('click', downloadWeeklyCSV);
   bindRangeLeadsFilters('wk', getWeekRange());
+  bindBySalespersonFilters('wk', getWeekRange());
 
   const monthStartInput = document.getElementById('monthStartInput');
   const monthEndInput = document.getElementById('monthEndInput');
@@ -4496,6 +4508,7 @@ function bindDynamicHandlers(){
   const exportMonthlyCsvBtn = document.getElementById('exportMonthlyCsvBtn');
   if(exportMonthlyCsvBtn) exportMonthlyCsvBtn.addEventListener('click', downloadMonthlyCSV);
   bindRangeLeadsFilters('mo', getMonthRange());
+  bindBySalespersonFilters('mo', getMonthRange());
 
   if(document.getElementById('createLoginBtn')) bindManageLoginsHandlers();
 }

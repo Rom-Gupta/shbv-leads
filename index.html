@@ -3058,6 +3058,7 @@ function bindRangeLeadsFilters(prefix, range){
       : allSalespeopleList().map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('');
     sales.innerHTML = `<option value="">All salesmen</option>` + options;
   }
+  if(team) repopulateSalesFilterR(team.value);
   function refresh(){
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
       filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'');
@@ -4005,6 +4006,9 @@ function bindDynamicHandlers(){
       : allSalespeopleList().map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${TEAM_LABELS[p.team]})</option>`).join('');
     filterSales.innerHTML = `<option value="">All salesmen</option>` + options;
   }
+  // Sync immediately in case the browser restored a selected Team value without
+  // firing a 'change' event (happens on back-navigation / mobile session restore).
+  if(filterTeam) repopulateSalesFilter(filterTeam.value);
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
       renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'');

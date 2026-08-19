@@ -1113,11 +1113,13 @@ function kitchenFinalStageLeadsForMe(){
   }));
   return out;
 }
-// Kitchen-only: leads that sold — this is where the post-sale workflow tracking lives.
+// Kitchen-only: leads that sold and still have post-sale work outstanding — this
+// is where the post-sale workflow tracking lives. Once every step is marked
+// complete, it drops off this list (nothing left to track) and just shows in All Lead.
 function kitchenDoneLeadsForMe(){
   const out = [];
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
-    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status==='sale') out.push({lead:l, a});
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status==='sale' && a.postSaleStage!=='completed') out.push({lead:l, a});
   }));
   return out;
 }

@@ -3231,6 +3231,29 @@ function entryWhoLabel(e){
   return label;
 }
 
+// Note: entries here already carry display team labels (e.g. "Tiles"), not raw
+// keys — so we compare against TEAM_LABELS[dept] rather than the raw dept key.
+function renderFollowupTodayResults(followupGroups, filterVal){
+  let list = followupGroups;
+  if(filterVal==='reception'){
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team==='Reception')})).filter(g=>g.entries.length);
+  } else if(filterVal.startsWith('sales:')){
+    const parts = filterVal.split(':');
+    const teamLabel = TEAM_LABELS[parts[1]], name = parts[2];
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team===teamLabel && (!name || e.salesperson===name))})).filter(g=>g.entries.length);
+  }
+  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No follow-up calls were scheduled today.'}</div>`;
+  return list.map(g=>`
+    <div class="card">
+      <div class="lead-name">${esc(g.lead.name)}</div>
+      <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
+      ${g.entries.map(e=>`
+        <div class="log-entry">
+          <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
+          ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
+        </div>`).join('')}
+    </div>`).join('');
+}
 function renderNeedsFollowupResults(needsFollowup, filterVal){
   let list = needsFollowup;
   if(filterVal==='reception'){
@@ -3299,17 +3322,15 @@ function viewReports(){
       </div>`).join('')}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Scheduled Today</div>
-  ${followupGroups.length===0 ? `<div class="empty">No follow-up calls were scheduled today.</div>` :
-    followupGroups.map(g=>`
-      <div class="card">
-        <div class="lead-name">${esc(g.lead.name)}</div>
-        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
-        ${g.entries.map(e=>`
-          <div class="log-entry">
-            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
-            ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
-          </div>`).join('')}
-      </div>`).join('')}
+  <select id="followupTodayDeptFilter" style="margin-bottom:10px;">
+    <option value="">All (Reception + Sales)</option>
+    <option value="reception">Reception</option>
+    ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+  </select>
+  <div id="followupTodayPersonWrap" class="hidden">
+    <select id="followupTodayPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="followupTodayResults">${renderFollowupTodayResults(followupGroups, '')}</div>
 
   <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
   <select id="needsFollowupDeptFilter" style="margin-bottom:10px;">
@@ -4110,6 +4131,40 @@ function bindDynamicHandlers(){
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
+
+  const followupTodayDeptFilter = document.getElementById('followupTodayDeptFilter');
+  const followupTodayPersonWrap = document.getElementById('followupTodayPersonWrap');
+  const followupTodayPersonFilter = document.getElementById('followupTodayPersonFilter');
+  function refreshFollowupToday(){
+    const groups = groupTodayActivityByLead();
+    const followupGroups = groups
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup')}))
+      .filter(g=>g.entries.length);
+    const dept = followupTodayDeptFilter.value;
+    let filterVal = '';
+    if(dept==='reception') filterVal = 'reception';
+    else if(dept){
+      filterVal = followupTodayPersonFilter.value ? `sales:${dept}:${followupTodayPersonFilter.value}` : `sales:${dept}`;
+    }
+    document.getElementById('followupTodayResults').innerHTML = renderFollowupTodayResults(followupGroups, filterVal);
+    document.querySelectorAll('[data-open-lead]').forEach(el=>{
+      el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+    });
+  }
+  if(followupTodayDeptFilter){
+    followupTodayDeptFilter.addEventListener('change', ()=>{
+      const dept = followupTodayDeptFilter.value;
+      const isRealTeam = dept && dept!=='reception';
+      followupTodayPersonWrap.classList.toggle('hidden', !isRealTeam);
+      if(isRealTeam){
+        const people = STAFF[dept]||[];
+        followupTodayPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
+          people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+      }
+      refreshFollowupToday();
+    });
+    followupTodayPersonFilter.addEventListener('change', refreshFollowupToday);
+  }
 
   const needsFollowupDeptFilter = document.getElementById('needsFollowupDeptFilter');
   const needsFollowupPersonWrap = document.getElementById('needsFollowupPersonWrap');

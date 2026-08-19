@@ -2546,7 +2546,10 @@ function viewManageLogins(){
           <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
           <div class="lead-meta">${lastLoginText(p)}</div>
         </div>
-        <button class="btn btn-ghost btn-sm resetHeadPassBtn" data-name="${esc(p.name)}">Reset Password</button>
+        <div class="row-btns" style="margin-top:0;">
+          <button class="btn btn-ghost btn-sm renameHeadBtn" data-name="${esc(p.name)}">Rename</button>
+          <button class="btn btn-ghost btn-sm resetHeadPassBtn" data-name="${esc(p.name)}">Reset Password</button>
+        </div>
       </div>
     </div>
   `).join('')}
@@ -2562,6 +2565,7 @@ function viewManageLogins(){
             ${p.isAssistant ? `<div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>` : ''}
           </div>
           <div class="row-btns" style="margin-top:0;">
+            <button class="btn btn-ghost btn-sm renamePersonBtn" data-dept="${dept}" data-name="${esc(p.name)}">Rename</button>
             <button class="btn btn-ghost btn-sm resetPassBtn" data-dept="${dept}" data-name="${esc(p.name)}">Reset Password</button>
             <button class="btn btn-ghost btn-sm removeLoginBtn" data-dept="${dept}" data-name="${esc(p.name)}">Remove</button>
           </div>
@@ -2626,6 +2630,71 @@ function bindManageLoginsHandlers(){
       renderApp();
     });
   }
+  // Names are used as the actual identity key throughout the app (whose lead is
+  // whose, who owns a connection, who an assistant is currently helping) — so a
+  // rename has to cascade through existing data, not just relabel the login.
+  // Past log entries (who said what, when) are left untouched on purpose — they're
+  // a historical record of who did the action at the time, not a live ownership key.
+  async function cascadeRename(kind, dept, oldName, newName){
+    if(kind==='head'){
+      CONNECTIONS.forEach(c=>{
+        if(c.createdBy===oldName) c.createdBy = newName;
+        if(c.assignedByHead===oldName) c.assignedByHead = newName;
+      });
+      await saveConnections(CONNECTIONS);
+    } else {
+      LEADS.forEach(l=>{
+        (l.assignments||[]).forEach(a=>{
+          if(a.team===dept && a.salesperson===oldName) a.salesperson = newName;
+        });
+        if(l.pendingAssistantRouting===oldName) l.pendingAssistantRouting = newName;
+      });
+      await saveLeads(LEADS);
+      if(dept==='reception'){
+        CONNECTIONS.forEach(c=>{ if(c.assignedToPerson===oldName) c.assignedToPerson = newName; });
+        await saveConnections(CONNECTIONS);
+      }
+      // Any assistant currently helping this person needs their helping-list updated too.
+      ['tiles','sanitary','kitchen','windows'].forEach(d=>{
+        (STAFF[d]||[]).forEach(p=>{
+          if(p.isAssistant && p.helping){
+            p.helping.forEach(h=>{ if(h.team===dept && h.salesperson===oldName) h.salesperson = newName; });
+          }
+        });
+      });
+    }
+  }
+  document.querySelectorAll('.renameHeadBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const oldName = btn.dataset.name;
+      const newName = prompt(`Rename "${oldName}" to:`, oldName);
+      if(!newName || !newName.trim() || newName.trim()===oldName) return;
+      const trimmed = newName.trim();
+      if(STAFF.heads.some(h=>h.name.toLowerCase()===trimmed.toLowerCase())){ toast('That name is already in use'); return; }
+      const head = STAFF.heads.find(h=>h.name===oldName);
+      head.name = trimmed;
+      await saveStaff(STAFF);
+      await cascadeRename('head', null, oldName, trimmed);
+      if(SESSION.name===oldName) SESSION.name = trimmed;
+      toast(`Renamed to ${trimmed}`);
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.renamePersonBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const dept = btn.dataset.dept, oldName = btn.dataset.name;
+      const newName = prompt(`Rename "${oldName}" to:`, oldName);
+      if(!newName || !newName.trim() || newName.trim()===oldName) return;
+      const trimmed = newName.trim();
+      if(STAFF[dept].some(p=>p.name.toLowerCase()===trimmed.toLowerCase())){ toast('That name is already in use in this department'); return; }
+      const person = STAFF[dept].find(p=>p.name===oldName);
+      person.name = trimmed;
+      await saveStaff(STAFF);
+      await cascadeRename('staff', dept, oldName, trimmed);
+      toast(`Renamed to ${trimmed} — existing leads and assignments updated`);
+      renderApp();
+    });
+  });
   document.querySelectorAll('.resetHeadPassBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const name = btn.dataset.name;

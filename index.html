@@ -1105,8 +1105,15 @@ function receptionHasPendingFollowup(l){
 // Leads reception is actively responsible for right now: anything not yet referred,
 // PLUS anything (even already referred/sold) where reception itself has a pending
 // follow-up on the books — e.g. an auto-scheduled post-sale feedback call.
+// A lead Reception marked lost before it was ever referred (e.g. customer already
+// bought elsewhere) — resolved, shouldn't keep showing up as needing attention.
+function receptionMarkedLost(l){
+  if(leadHasAssignments(l)) return false;
+  const log = l.receptionLog;
+  return !!(log && log.length && log[log.length-1].status==='lost');
+}
 function receptionActionableLeads(){
-  return LEADS.filter(l=> !leadHasAssignments(l) || receptionHasPendingFollowup(l));
+  return LEADS.filter(l=> (!leadHasAssignments(l) && !receptionMarkedLost(l)) || receptionHasPendingFollowup(l));
 }
 function receptionDueTodayCount(){
   return receptionActionableLeads().filter(l=>{
@@ -1726,13 +1733,13 @@ function headDueTodayCount(){
 // customer is physically standing there or already left, so this is urgent.
 function neglectedWalkins(){
   const cutoff = Date.now() - 24*3600*1000;
-  return LEADS.filter(l=> l.source==='Walk-in' && !leadHasAssignments(l) && new Date(l.createdAt).getTime() < cutoff);
+  return LEADS.filter(l=> l.source==='Walk-in' && !leadHasAssignments(l) && !receptionMarkedLost(l) && new Date(l.createdAt).getTime() < cutoff);
 }
 // A Physical Marketing lead (banner/flyer/etc.) that's sat 30+ days without being
 // referred — these trickle in slower, so the bar for "neglected" is longer.
 function neglectedMarketingLeads(){
   const cutoff = Date.now() - 30*24*3600*1000;
-  return LEADS.filter(l=> l.source==='Physical Marketing' && !leadHasAssignments(l) && new Date(l.createdAt).getTime() < cutoff);
+  return LEADS.filter(l=> l.source==='Physical Marketing' && !leadHasAssignments(l) && !receptionMarkedLost(l) && new Date(l.createdAt).getTime() < cutoff);
 }
 function viewHeadOverview(){
   const total = LEADS.length;
@@ -3209,7 +3216,7 @@ function leadCardHead(l){
         <div class="lead-name">${esc(l.name)}</div>
         <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
-        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || (receptionMarkedLost(l) ? '<span class="team-tag" style="background:var(--bad);">Reception: Lost (already purchased / not interested)</span>' : '<span class="lead-meta">Not yet referred to sales</span>')}</div>
       </div>
     </div>
     <div class="row-btns">

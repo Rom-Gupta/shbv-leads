@@ -1114,11 +1114,23 @@ function receptionDueTodayCount(){
     return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
   }).length;
 }
+// Count of not-yet-referred leads for a given source — the badge on each source
+// sub-tab, so it's obvious at a glance which source has leads waiting.
+function receptionUnreferredCountBySource(source){
+  return LEADS.filter(l=> l.source===source && !leadHasAssignments(l)).length;
+}
 
 /* ---------------- Tabs ---------------- */
 function tabsFor(role){
   if(role==='reception') return [
-    {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount()},
+    {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount(),
+      sub:[
+        {id:'all', label:'All'},
+        {id:'Walk-in', label:'Walk-in', badge:()=>receptionUnreferredCountBySource('Walk-in')},
+        {id:'Digital Ad', label:'Digital Ad', badge:()=>receptionUnreferredCountBySource('Digital Ad')},
+        {id:'Reference', label:'Reference', badge:()=>receptionUnreferredCountBySource('Reference')},
+        {id:'Physical Marketing', label:'Phys. Marketing', badge:()=>receptionUnreferredCountBySource('Physical Marketing')},
+      ]},
     {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
     {id:'connectioncalls', label:'Connection Calls', badge:()=>receptionAssignedConnectionsForMe().length,
       sub:[{id:'due', label:'Due Today', badge:()=>receptionConnCallsDueTodayForMe().length}, {id:'upcoming', label:'Upcoming', badge:()=>receptionConnCallsUpcomingForMe().length}]},
@@ -1198,7 +1210,7 @@ async function renderApp(){
   destroyAnalyticsCharts();
   const area = document.getElementById('viewArea');
   if(SESSION.role==='reception'){
-    if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox();
+    if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox(ACTIVE_SUBTAB||'all');
     else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
     else if(ACTIVE_TAB==='connectioncalls'){
       area.innerHTML = ACTIVE_SUBTAB==='upcoming' ? viewReceptionConnectionCalls('upcoming') : viewReceptionConnectionCalls('due');
@@ -1397,9 +1409,12 @@ function viewCrossSellMine(){
 }
 
 /* ---------------- Reception: Inbox ---------------- */
-function viewReceptionInbox(){
-  const list = receptionActionableLeads();
-  if(!list.length) return `<div class="empty">Nothing needs your attention right now. New leads you add will appear here until referred, and any follow-up calls reception owes will show up here too.</div>`;
+function viewReceptionInbox(sourceFilter){
+  let list = receptionActionableLeads();
+  if(sourceFilter && sourceFilter!=='all'){
+    list = list.filter(l=> l.source===sourceFilter);
+  }
+  if(!list.length) return `<div class="empty">${sourceFilter && sourceFilter!=='all' ? `Nothing from ${sourceFilter} needs your attention right now.` : "Nothing needs your attention right now. New leads you add will appear here until referred, and any follow-up calls reception owes will show up here too."}</div>`;
   // sort: due/never-contacted first
   const sorted = [...list].sort((a,b)=>{
     const da = a.receptionLog?.length ? a.receptionLog[a.receptionLog.length-1].nextFollowUp||'' : '0000';

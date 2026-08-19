@@ -1125,6 +1125,7 @@ function tabsFor(role){
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount(),
       sub:[
+        {id:'due', label:'Due Today', badge:()=>receptionDueTodayCount()},
         {id:'all', label:'All'},
         {id:'Walk-in', label:'Walk-in', badge:()=>receptionUnreferredCountBySource('Walk-in')},
         {id:'Digital Ad', label:'Digital Ad', badge:()=>receptionUnreferredCountBySource('Digital Ad')},
@@ -1411,10 +1412,23 @@ function viewCrossSellMine(){
 /* ---------------- Reception: Inbox ---------------- */
 function viewReceptionInbox(sourceFilter){
   let list = receptionActionableLeads();
-  if(sourceFilter && sourceFilter!=='all'){
+  if(sourceFilter==='due'){
+    list = list.filter(l=>{
+      if(l.receptionLog && l.receptionLog.length){
+        const last = l.receptionLog[l.receptionLog.length-1];
+        return last.status==='followup' && isDueToday(last.nextFollowUp);
+      }
+      return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
+    });
+  } else if(sourceFilter && sourceFilter!=='all'){
     list = list.filter(l=> l.source===sourceFilter);
   }
-  if(!list.length) return `<div class="empty">${sourceFilter && sourceFilter!=='all' ? `Nothing from ${sourceFilter} needs your attention right now.` : "Nothing needs your attention right now. New leads you add will appear here until referred, and any follow-up calls reception owes will show up here too."}</div>`;
+  if(!list.length){
+    const emptyMsg = sourceFilter==='due' ? 'Nothing due today.' :
+      (sourceFilter && sourceFilter!=='all' ? `Nothing from ${sourceFilter} needs your attention right now.` :
+      "Nothing needs your attention right now. New leads you add will appear here until referred, and any follow-up calls reception owes will show up here too.");
+    return `<div class="empty">${emptyMsg}</div>`;
+  }
   // sort: due/never-contacted first
   const sorted = [...list].sort((a,b)=>{
     const da = a.receptionLog?.length ? a.receptionLog[a.receptionLog.length-1].nextFollowUp||'' : '0000';

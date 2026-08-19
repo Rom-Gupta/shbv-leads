@@ -156,6 +156,7 @@
   .badge-site_visit{background:var(--info-bg);color:var(--info);}
   .badge-dimension_done{background:#E3EDE6;color:#3D6B4A;}
   .badge-design_3d{background:#EDE7F6;color:#5E4B8C;}
+  .badge-pipeline_revision{background:#FCE9E3;color:#A34E2E;}
   .badge-align_meeting{background:var(--warn-bg);color:var(--warn);}
   .badge-meeting_quotation{background:#FBEFE0;color:var(--brass);}
   .badge-pipeline-pending{background:var(--bad-bg);color:var(--bad);opacity:.85;}
@@ -469,7 +470,7 @@ function dedupeAssignments(l){
     if(seen.has(key)){
       const existing = seen.get(key);
       existing.log = [...(existing.log||[]), ...(a.log||[])].sort((x,y)=>x.timestamp.localeCompare(y.timestamp));
-      const RESOLVED_ORDER = ['pending','visited','site_visit','dimension_done','design_3d','align_meeting','meeting_quotation','sale','lost'];
+      const RESOLVED_ORDER = ['pending','visited','site_visit','dimension_done','design_3d','pipeline_revision','align_meeting','meeting_quotation','sale','lost'];
       if(RESOLVED_ORDER.indexOf(a.status) > RESOLVED_ORDER.indexOf(existing.status)) existing.status = a.status;
       if(a.pipelineStage && !existing.pipelineStage) existing.pipelineStage = a.pipelineStage;
       if(a.product && !existing.product) existing.product = a.product;
@@ -507,6 +508,9 @@ function normalizeLead(l){
     if(a.pipelineStage===undefined) a.pipelineStage = null;
     if(a.pipelineStage==='site_visit_marking') a.pipelineStage = 'dimension_done';
     if(a.quotationImageUrl===undefined) a.quotationImageUrl = null;
+    if(a.postSaleStage===undefined) a.postSaleStage = null;
+    if(a.postSaleNextDate===undefined) a.postSaleNextDate = null;
+    if(!Array.isArray(a.postSaleLog)) a.postSaleLog = [];
     if(a.companyReferred===undefined) a.companyReferred = false;
     if(a.companyName===undefined) a.companyName = '';
     if(a.companyPersonName===undefined) a.companyPersonName = '';
@@ -542,10 +546,22 @@ const KITCHEN_PIPELINE_LABELS = {
   site_visit:'Site Visit',
   dimension_done:'Dimension Done',
   design_3d:'3-D Done',
+  pipeline_revision:'Revision',
   align_meeting:'Align Meeting',
   meeting_quotation:'Meeting & Quotation Given'
 };
-const KITCHEN_PIPELINE_ORDER = ['site_visit','dimension_done','design_3d','align_meeting','meeting_quotation'];
+const KITCHEN_PIPELINE_ORDER = ['site_visit','dimension_done','design_3d','pipeline_revision','align_meeting','meeting_quotation'];
+// Kitchen/Wardrobe post-sale workflow — starts once a Kitchen assignment is
+// marked Sale Done. Each stage gets marked complete along with the date the
+// *next* stage is expected, so the team can plan ahead instead of reacting late.
+const POST_SALE_STAGE_LABELS = {
+  detailing_2d:'2D Detailing',
+  ps_revision:'Revision',
+  electric_plumbing:'Electric & Plumbing Point',
+  order_details:'Order Details',
+  punch_order:'Punch Order'
+};
+const POST_SALE_STAGE_ORDER = ['detailing_2d','ps_revision','electric_plumbing','order_details','punch_order'];
 function statusLabelFor(a){ return STATUS_LABELS[a.status] || a.status; }
 function pipelineLabelFor(a){ return a.pipelineStage ? KITCHEN_PIPELINE_LABELS[a.pipelineStage] : ''; }
 function pipelineBadgeHtml(a){
@@ -1074,6 +1090,23 @@ function dueTodayCountForMe(){
   n += meetingDueAssignmentsForMe().length;
   return n;
 }
+// Kitchen-only: leads sitting at the final pre-sale pipeline stage (quotation
+// given) — the point where extra follow-up care matters most before losing them.
+function kitchenFinalStageLeadsForMe(){
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status!=='sale' && a.status!=='lost' && a.pipelineStage==='meeting_quotation') out.push({lead:l, a});
+  }));
+  return out;
+}
+// Kitchen-only: leads that sold — this is where the post-sale workflow tracking lives.
+function kitchenDoneLeadsForMe(){
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team===SESSION.role && a.salesperson===SESSION.name && a.status==='sale') out.push({lead:l, a});
+  }));
+  return out;
+}
 // Meetings scheduled for tomorrow — shown as a heads-up reminder a day ahead.
 function meetingReminderAssignmentsForMe(){
   const t = tomorrowStr();
@@ -1167,6 +1200,20 @@ function tabsFor(role){
     {id:'due', label:'Due Today', badge:()=>assistantDueTodayLeads().length},
     {id:'allmine', label:'All Leads'},
     {id:'helping', label:'Who I\'m Helping'},
+  ];
+  if(SESSION && SESSION.role==='kitchen' && !SESSION.isAssistant) return [
+    {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe(),
+      sub:[
+        {id:'leads', label:'Leads'},
+        {id:'final', label:'Final Stage', badge:()=>kitchenFinalStageLeadsForMe().length},
+        {id:'donelead', label:'Done Lead', badge:()=>kitchenDoneLeadsForMe().length},
+        {id:'all', label:'All Lead'},
+      ]},
+    {id:'due', label:'Due Today', badge:()=>dueTodayCountForMe()},
+    {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeadsForMe().length},
+    {id:'upcoming', label:'Upcoming Follow-ups'},
+    {id:'add', label:'+ New Lead'},
+    {id:'allmine', label:'All My Leads'},
   ];
   return [
     {id:'myleads', label:'Active Leads', badge:()=>newAssignmentsCountForMe()+dueTodayCountForMe()},
@@ -1262,7 +1309,13 @@ async function renderApp(){
     else if(ACTIVE_TAB==='helping') area.innerHTML = viewAssistantHelping();
     else area.innerHTML = viewAssistantRouteQueue();
   } else {
-    if(ACTIVE_TAB==='myleads') area.innerHTML = viewMyLeads('active');
+    if(ACTIVE_TAB==='myleads'){
+      if(SESSION.role==='kitchen' && !SESSION.isAssistant && ACTIVE_SUBTAB){
+        area.innerHTML = viewMyLeads(ACTIVE_SUBTAB);
+      } else {
+        area.innerHTML = viewMyLeads('active');
+      }
+    }
     else if(ACTIVE_TAB==='due') area.innerHTML = viewMyLeads('due');
     else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSellMine();
     else if(ACTIVE_TAB==='upcoming') area.innerHTML = viewUpcomingFollowups();
@@ -1591,13 +1644,72 @@ function viewAssistantHelping(){
   </div>
   `;
 }
+// Post-sale progress card for a Kitchen lead — shows completed stages, the
+// current stage with a way to mark it done + schedule the next stage's date.
+function postSaleCard(lead, a){
+  const idx = a.postSaleStage ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+  const currentStage = idx>=0 ? POST_SALE_STAGE_ORDER[idx] : POST_SALE_STAGE_ORDER[0];
+  const isComplete = a.postSaleStage==='completed';
+  const doneStages = isComplete ? POST_SALE_STAGE_ORDER : POST_SALE_STAGE_ORDER.slice(0, idx+1);
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(lead.name)}</div>
+        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+      </div>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      ${doneStages.map(s=>`<span class="team-tag" style="background:#3D6B4A;">✓ ${POST_SALE_STAGE_LABELS[s]}</span>`).join('')}
+    </div>
+    ${isComplete ? `<div class="lead-meta" style="margin-top:8px;color:var(--ok);font-weight:600;">✓ All post-sale steps complete</div>` : `
+      <div class="assign-block" style="margin-top:10px;">
+        <div class="section-title" style="margin:0 0 6px;">Current: ${POST_SALE_STAGE_LABELS[currentStage]}</div>
+        <label>Date for next step</label>
+        <input type="date" class="postSaleNextDateInput" data-assign="${a.id}" data-lead="${lead.id}" value="${a.postSaleNextDate||''}">
+        <label>Note (optional)</label>
+        <textarea class="postSaleNoteInput" data-assign="${a.id}" placeholder="Anything worth noting about this step"></textarea>
+        <button class="btn btn-brass btn-sm markPostSaleDoneBtn" data-assign="${a.id}" data-lead="${lead.id}">Mark "${POST_SALE_STAGE_LABELS[currentStage]}" Done</button>
+      </div>
+      ${a.postSaleNextDate ? `<div class="lead-meta" style="margin-top:6px;">Next step expected: <b>${fmtDate(a.postSaleNextDate)}</b></div>` : ''}
+    `}
+    ${a.postSaleLog && a.postSaleLog.length ? `
+      <div class="section-title" style="margin-top:10px;">History</div>
+      ${a.postSaleLog.slice().reverse().map(e=>`
+        <div class="log-entry">
+          <div class="meta">${esc(e.author||'')} · ${fmtDateTime(e.completedAt)}</div>
+          ${POST_SALE_STAGE_LABELS[e.stage]||e.stage} completed. ${e.remarks?esc(e.remarks):''} ${e.nextDate?`<div class="meta">Next step expected: ${fmtDate(e.nextDate)}</div>`:''}
+        </div>`).join('')}
+    ` : ''}
+    <div class="row-btns" style="margin-top:8px;">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View Full Lead</button>
+    </div>
+  </div>`;
+}
 function viewMyLeads(mode){
+  if(mode==='final'){
+    const pairs = kitchenFinalStageLeadsForMe();
+    if(!pairs.length) return `<div class="empty">Nothing at Meeting & Quotation stage right now.</div>`;
+    return `<div class="lead-meta" style="margin-bottom:10px;">Quotation's already been given — these need extra follow-up care before the customer's decision slips away.</div>` +
+      pairs.map(({lead,a})=>leadCardSales(lead,a)).join('');
+  }
+  if(mode==='donelead'){
+    const pairs = kitchenDoneLeadsForMe();
+    if(!pairs.length) return `<div class="empty">No sales closed yet.</div>`;
+    return pairs.map(({lead,a})=>postSaleCard(lead,a)).join('');
+  }
+  if(mode==='all'){
+    return viewAllMyLeads();
+  }
   let assigns = [];
   LEADS.forEach(l=>{
     (l.assignments||[]).forEach(a=>{
       if(a.team===SESSION.role && a.salesperson===SESSION.name){
         if(mode==='due'){
           if(a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) assigns.push({lead:l, a});
+        } else if(mode==='leads' && a.team==='kitchen'){
+          // Kitchen's plain "Leads" sub-tab excludes the final stage — that has its own tab.
+          if(a.status!=='sale' && a.status!=='lost' && a.pipelineStage!=='meeting_quotation') assigns.push({lead:l, a});
         } else {
           if(a.status!=='sale' && a.status!=='lost') assigns.push({lead:l, a});
         }
@@ -3816,6 +3928,34 @@ function bindDynamicHandlers(){
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
 
+  document.querySelectorAll('.markPostSaleDoneBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const assignId = btn.dataset.assign, leadId = btn.dataset.lead;
+      const targetLead = LEADS.find(l=>l.id===leadId);
+      const a = targetLead && targetLead.assignments.find(x=>x.id===assignId);
+      if(!a) return;
+      const nextDateEl = document.querySelector(`.postSaleNextDateInput[data-assign="${assignId}"]`);
+      const noteEl = document.querySelector(`.postSaleNoteInput[data-assign="${assignId}"]`);
+      const nextDate = nextDateEl ? nextDateEl.value : '';
+      const note = noteEl ? noteEl.value.trim() : '';
+      const currentIdx = a.postSaleStage ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+      const currentStage = currentIdx>=0 ? POST_SALE_STAGE_ORDER[currentIdx] : POST_SALE_STAGE_ORDER[0];
+      if(!a.postSaleLog) a.postSaleLog = [];
+      a.postSaleLog.push({stage:currentStage, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+      const nextIdx = currentIdx+1;
+      if(nextIdx >= POST_SALE_STAGE_ORDER.length){
+        a.postSaleStage = 'completed';
+        a.postSaleNextDate = null;
+      } else {
+        a.postSaleStage = POST_SALE_STAGE_ORDER[nextIdx];
+        a.postSaleNextDate = nextDate || null;
+      }
+      await saveLeads(LEADS);
+      toast(`${POST_SALE_STAGE_LABELS[currentStage]} marked done`);
+      renderApp();
+    });
+  });
+
   const followupDeptFilter = document.getElementById('followupDeptFilter');
   const followupPersonWrap = document.getElementById('followupPersonWrap');
   const followupPersonFilter = document.getElementById('followupPersonFilter');
@@ -4546,6 +4686,7 @@ function bindModalHandlers(lead){
       // Any other outcome (pending/visited) leaves the existing follow-up date untouched —
       // updating the outcome should never silently cancel or change a scheduled follow-up.
       if(status==='sale' || status==='lost') a.nextFollowUp = null;
+      if(status==='sale' && a.team==='kitchen' && !a.postSaleStage) a.postSaleStage = POST_SALE_STAGE_ORDER[0];
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:currentLogAuthor(a), remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is resolved (Sale Done or Lost): auto-schedule a

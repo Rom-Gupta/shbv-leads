@@ -1088,6 +1088,7 @@ function dueTodayCountForMe(){
     if(a.team===SESSION.role && a.salesperson===SESSION.name && a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) n++;
   }));
   n += meetingDueAssignmentsForMe().length;
+  n += postSaleDueAssignmentsForMe().length;
   return n;
 }
 // Kitchen-only: leads sitting at the final pre-sale pipeline stage (quotation
@@ -1124,6 +1125,27 @@ function meetingDueAssignmentsForMe(){
   const out = [];
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
     if(a.team===SESSION.role && a.salesperson===SESSION.name && a.pipelineStage==='align_meeting' && a.meetingDate && a.meetingDate<=t && a.status!=='sale' && a.status!=='lost') out.push({lead:l, a});
+  }));
+  return out;
+}
+// Kitchen post-sale: a next-step date that's arrived (today or overdue) — stays
+// flagged until that stage is actually marked done, same as meetings-due above.
+function postSaleDueAssignmentsForMe(){
+  if(SESSION.role!=='kitchen') return [];
+  const t = todayStr();
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team==='kitchen' && a.salesperson===SESSION.name && a.status==='sale' && a.postSaleStage && a.postSaleStage!=='completed' && a.postSaleNextDate && a.postSaleNextDate<=t) out.push({lead:l, a});
+  }));
+  return out;
+}
+// Post-sale next-step dates landing tomorrow — a heads-up a day ahead.
+function postSaleReminderAssignmentsForMe(){
+  if(SESSION.role!=='kitchen') return [];
+  const t = tomorrowStr();
+  const out = [];
+  LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+    if(a.team==='kitchen' && a.salesperson===SESSION.name && a.status==='sale' && a.postSaleStage && a.postSaleStage!=='completed' && a.postSaleNextDate===t) out.push({lead:l, a});
   }));
   return out;
 }
@@ -1716,14 +1738,22 @@ function viewMyLeads(mode){
       }
     });
   });
+  let postSaleDueHtml = '';
   if(mode==='due'){
     // Fold in meetings that are due (today or overdue) without double-listing an
     // assignment that's already there for a regular follow-up reason.
     meetingDueAssignmentsForMe().forEach(({lead,a})=>{
       if(!assigns.some(x=>x.a.id===a.id)) assigns.push({lead,a});
     });
+    // Post-sale next-step dates use their own card (postSaleCard), not the normal
+    // outcome-update card, since the deal's already closed — different form entirely.
+    const postSaleDue = postSaleDueAssignmentsForMe();
+    if(postSaleDue.length){
+      postSaleDueHtml = `<div class="section-title" style="margin-top:0;">🔧 Post-Sale Step Due</div>` +
+        postSaleDue.map(({lead,a})=>postSaleCard(lead,a)).join('');
+    }
   }
-  let html = '';
+  let html = postSaleDueHtml;
   if(mode!=='due'){
     const reminders = meetingReminderAssignmentsForMe();
     if(reminders.length){
@@ -1741,8 +1771,25 @@ function viewMyLeads(mode){
         </div>`;
       });
     }
+    const postSaleReminders = postSaleReminderAssignmentsForMe();
+    if(postSaleReminders.length){
+      html += `<div class="section-title" style="margin-top:${reminders.length?'14px':'0'};">🔔 Post-Sale Step Due Tomorrow</div>`;
+      postSaleReminders.forEach(({lead,a})=>{
+        const stageLabel = POST_SALE_STAGE_LABELS[a.postSaleStage]||a.postSaleStage;
+        html += `<div class="card" style="border-color:var(--warn);">
+          <div class="card-row">
+            <div>
+              <div class="lead-name">${esc(lead.name)}</div>
+              <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+              <div class="lead-meta">"${stageLabel}" expected <b>tomorrow, ${fmtDate(a.postSaleNextDate)}</b></div>
+            </div>
+          </div>
+          <div class="row-btns"><button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View</button></div>
+        </div>`;
+      });
+    }
   }
-  if(!assigns.length) return html + `<div class="empty">${mode==='due' ? 'No follow-ups due today.' : 'No active leads referred to you right now.'}</div>`;
+  if(!assigns.length) return html + `<div class="empty">${mode==='due' ? (postSaleDueHtml ? '' : 'No follow-ups due today.') : 'No active leads referred to you right now.'}</div>`;
   assigns.sort((x,y)=> (x.a.acknowledged===y.a.acknowledged) ? 0 : (x.a.acknowledged?1:-1));
   return html + assigns.map(({lead,a})=>leadCardSales(lead,a)).join('');
 }

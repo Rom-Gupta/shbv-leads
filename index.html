@@ -1421,6 +1421,7 @@ function viewUpcomingFollowups(){
 // Same follow-up data, surfaced inside the Leads section for Head — but without the
 // meeting export button, since meetings now have their own home under Connections.
 function renderUpcomingFollowupResults(entries, filterVal){
+  if(!filterVal) return `<div class="empty">Select a filter above to see follow-ups.</div>`;
   let list = entries;
   if(filterVal==='reception'){
     list = list.filter(e=> e.team==='reception');
@@ -1429,7 +1430,7 @@ function renderUpcomingFollowupResults(entries, filterVal){
     const team = parts[1], name = parts[2];
     list = list.filter(e=> e.team===team && (!name || e.salesperson===name));
   }
-  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No upcoming follow-ups scheduled.'}</div>`;
+  if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return list.map(e=>`
     <div class="card">
       <div class="card-row">
@@ -1448,7 +1449,7 @@ function viewLeadsUpcomingFollowup(){
   const entries = collectUpcomingFollowups();
   return `
   <select id="followupDeptFilter" style="margin-bottom:10px;">
-    <option value="">All (Reception + Sales)</option>
+    <option value="">— Please select —</option>
     <option value="reception">Reception</option>
     ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
   </select>
@@ -3291,13 +3292,14 @@ function rangeLeadsFilterPanel(prefix, range){
   `;
 }
 function renderBySalespersonResults(salesEntries, filterVal){
+  if(!filterVal) return `<div class="empty">Select a team above to see salesperson activity.</div>`;
   let list = salesEntries;
   if(filterVal.startsWith('team:')){
     const parts = filterVal.split(':');
     const team = parts[1], name = parts[2];
     list = list.filter(s=> s.team===team && (!name || s.name===name));
   }
-  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No sales activity in this range.'}</div>`;
+  if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return list.map(s=>`
     <div class="card">
       <div class="card-row">
@@ -3325,7 +3327,7 @@ function renderBySalespersonResults(salesEntries, filterVal){
 function bySalespersonFilterPanel(prefix, salesEntries){
   return `
   <select id="${prefix}SalesDeptFilter" style="margin-bottom:10px;">
-    <option value="">All Teams</option>
+    <option value="">— Please select —</option>
     ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
   </select>
   <div id="${prefix}SalesPersonWrap" class="hidden">
@@ -3501,6 +3503,7 @@ function entryWhoLabel(e){
 // Note: entries here already carry display team labels (e.g. "Tiles"), not raw
 // keys — so we compare against TEAM_LABELS[dept] rather than the raw dept key.
 function renderFollowupTodayResults(followupGroups, filterVal){
+  if(!filterVal) return `<div class="empty">Select a filter above to see today's follow-ups.</div>`;
   let list = followupGroups;
   if(filterVal==='reception'){
     list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team==='Reception')})).filter(g=>g.entries.length);
@@ -3509,7 +3512,7 @@ function renderFollowupTodayResults(followupGroups, filterVal){
     const teamLabel = TEAM_LABELS[parts[1]], name = parts[2];
     list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team===teamLabel && (!name || e.salesperson===name))})).filter(g=>g.entries.length);
   }
-  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No follow-up calls were scheduled today.'}</div>`;
+  if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return list.map(g=>`
     <div class="card">
       <div class="lead-name">${esc(g.lead.name)}</div>
@@ -3522,6 +3525,7 @@ function renderFollowupTodayResults(followupGroups, filterVal){
     </div>`).join('');
 }
 function renderNeedsFollowupResults(needsFollowup, filterVal){
+  if(!filterVal) return `<div class="empty">Select a filter above to see customers with no follow-up scheduled.</div>`;
   let list = needsFollowup;
   if(filterVal==='reception'){
     list = list.filter(l=> !leadHasAssignments(l));
@@ -3532,7 +3536,7 @@ function renderNeedsFollowupResults(needsFollowup, filterVal){
       a.team===team && (!name || a.salesperson===name) && !assignmentHasPlan(a)
     ));
   }
-  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'Everyone active has a follow-up plan in place.'}</div>`;
+  if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return list.map(l=>{
     const assignments = l.assignments||[];
     const missing = assignments.filter(a=> !assignmentHasPlan(a));
@@ -3590,7 +3594,7 @@ function viewReports(){
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Scheduled Today</div>
   <select id="followupTodayDeptFilter" style="margin-bottom:10px;">
-    <option value="">All (Reception + Sales)</option>
+    <option value="">— Please select —</option>
     <option value="reception">Reception</option>
     ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
   </select>
@@ -3601,7 +3605,7 @@ function viewReports(){
 
   <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
   <select id="needsFollowupDeptFilter" style="margin-bottom:10px;">
-    <option value="">All (Reception + Sales)</option>
+    <option value="">— Please select —</option>
     <option value="reception">Reception</option>
     ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
   </select>

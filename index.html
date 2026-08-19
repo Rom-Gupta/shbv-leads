@@ -1262,11 +1262,11 @@ function collectUpcomingFollowups(){
   if(SESSION.role==='head'){
     LEADS.forEach(l=>{
       (l.assignments||[]).forEach(a=>{
-        if(a.nextFollowUp) entries.push({lead:l, label:`${TEAM_LABELS[a.team]} — ${a.salesperson}`, date:a.nextFollowUp});
+        if(a.nextFollowUp) entries.push({lead:l, label:`${TEAM_LABELS[a.team]} — ${a.salesperson}`, date:a.nextFollowUp, team:a.team, salesperson:a.salesperson});
       });
       if(l.receptionLog && l.receptionLog.length){
         const last = l.receptionLog[l.receptionLog.length-1];
-        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp});
+        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp, team:'reception', salesperson:null});
       }
     });
   } else if(SESSION.role==='reception'){
@@ -1309,10 +1309,17 @@ function viewUpcomingFollowups(){
 }
 // Same follow-up data, surfaced inside the Leads section for Head — but without the
 // meeting export button, since meetings now have their own home under Connections.
-function viewLeadsUpcomingFollowup(){
-  const entries = collectUpcomingFollowups();
-  if(!entries.length) return `<div class="empty">No upcoming follow-ups scheduled.</div>`;
-  return entries.map(e=>`
+function renderUpcomingFollowupResults(entries, filterVal){
+  let list = entries;
+  if(filterVal==='reception'){
+    list = list.filter(e=> e.team==='reception');
+  } else if(filterVal.startsWith('sales:')){
+    const parts = filterVal.split(':');
+    const team = parts[1], name = parts[2];
+    list = list.filter(e=> e.team===team && (!name || e.salesperson===name));
+  }
+  if(!list.length) return `<div class="empty">${filterVal ? 'Nothing matches this filter.' : 'No upcoming follow-ups scheduled.'}</div>`;
+  return list.map(e=>`
     <div class="card">
       <div class="card-row">
         <div>
@@ -1325,6 +1332,20 @@ function viewLeadsUpcomingFollowup(){
         <button class="btn btn-ghost btn-sm" data-open-lead="${e.lead.id}">View</button>
       </div>
     </div>`).join('');
+}
+function viewLeadsUpcomingFollowup(){
+  const entries = collectUpcomingFollowups();
+  return `
+  <select id="followupDeptFilter" style="margin-bottom:10px;">
+    <option value="">All (Reception + Sales)</option>
+    <option value="reception">Reception</option>
+    ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+  </select>
+  <div id="followupPersonWrap" class="hidden">
+    <select id="followupPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="followupFilterResults">${renderUpcomingFollowupResults(entries, '')}</div>
+  `;
 }
 
 /* ---------------- Cross-sell Opportunities (Reception + Head) ---------------- */
@@ -3665,6 +3686,37 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  const followupDeptFilter = document.getElementById('followupDeptFilter');
+  const followupPersonWrap = document.getElementById('followupPersonWrap');
+  const followupPersonFilter = document.getElementById('followupPersonFilter');
+  function refreshFollowupFilter(){
+    const entries = collectUpcomingFollowups();
+    const dept = followupDeptFilter.value;
+    let filterVal = '';
+    if(dept==='reception') filterVal = 'reception';
+    else if(dept){
+      filterVal = followupPersonFilter.value ? `sales:${dept}:${followupPersonFilter.value}` : `sales:${dept}`;
+    }
+    document.getElementById('followupFilterResults').innerHTML = renderUpcomingFollowupResults(entries, filterVal);
+    document.querySelectorAll('[data-open-lead]').forEach(el=>{
+      el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+    });
+  }
+  if(followupDeptFilter){
+    followupDeptFilter.addEventListener('change', ()=>{
+      const dept = followupDeptFilter.value;
+      const isRealTeam = dept && dept!=='reception';
+      followupPersonWrap.classList.toggle('hidden', !isRealTeam);
+      if(isRealTeam){
+        const people = STAFF[dept]||[];
+        followupPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
+          people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+      }
+      refreshFollowupFilter();
+    });
+    followupPersonFilter.addEventListener('change', refreshFollowupFilter);
+  }
 
   const saveHelpingBtn = document.getElementById('saveHelpingBtn');
   if(saveHelpingBtn){

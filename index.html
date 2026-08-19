@@ -153,7 +153,8 @@
   .badge-followup{background:var(--warn-bg);color:var(--warn);}
   .badge-lost{background:var(--bad-bg);color:var(--bad);}
   .badge-no-followup{background:#EEE9DC;color:#7A6A3F;}
-  .badge-site_visit_marking{background:var(--info-bg);color:var(--info);}
+  .badge-site_visit{background:var(--info-bg);color:var(--info);}
+  .badge-dimension_done{background:#E3EDE6;color:#3D6B4A;}
   .badge-design_3d{background:#EDE7F6;color:#5E4B8C;}
   .badge-align_meeting{background:var(--warn-bg);color:var(--warn);}
   .badge-meeting_quotation{background:#FBEFE0;color:var(--brass);}
@@ -468,7 +469,7 @@ function dedupeAssignments(l){
     if(seen.has(key)){
       const existing = seen.get(key);
       existing.log = [...(existing.log||[]), ...(a.log||[])].sort((x,y)=>x.timestamp.localeCompare(y.timestamp));
-      const RESOLVED_ORDER = ['pending','visited','site_visit_marking','design_3d','align_meeting','meeting_quotation','sale','lost'];
+      const RESOLVED_ORDER = ['pending','visited','site_visit','dimension_done','design_3d','align_meeting','meeting_quotation','sale','lost'];
       if(RESOLVED_ORDER.indexOf(a.status) > RESOLVED_ORDER.indexOf(existing.status)) existing.status = a.status;
       if(a.pipelineStage && !existing.pipelineStage) existing.pipelineStage = a.pipelineStage;
       if(a.product && !existing.product) existing.product = a.product;
@@ -504,6 +505,7 @@ function normalizeLead(l){
     if(a.meetingDate===undefined) a.meetingDate = null;
     if(a.meetingTime===undefined) a.meetingTime = null;
     if(a.pipelineStage===undefined) a.pipelineStage = null;
+    if(a.pipelineStage==='site_visit_marking') a.pipelineStage = 'dimension_done';
     if(a.quotationImageUrl===undefined) a.quotationImageUrl = null;
     if(a.companyReferred===undefined) a.companyReferred = false;
     if(a.companyName===undefined) a.companyName = '';
@@ -537,12 +539,13 @@ const STATUS_LABELS = {pending:'Pending Visit', visited:'Visited', partial_sale:
 // Kitchen/Wardrobe gets an extra "Pipeline" field alongside the normal Status —
 // it doesn't replace Pending/Visited/Sale/Lost, it just adds more detail on top of it.
 const KITCHEN_PIPELINE_LABELS = {
-  site_visit_marking:'Site Visit & Marking Done',
+  site_visit:'Site Visit',
+  dimension_done:'Dimension Done',
   design_3d:'3-D Done',
   align_meeting:'Align Meeting',
   meeting_quotation:'Meeting & Quotation Given'
 };
-const KITCHEN_PIPELINE_ORDER = ['site_visit_marking','design_3d','align_meeting','meeting_quotation'];
+const KITCHEN_PIPELINE_ORDER = ['site_visit','dimension_done','design_3d','align_meeting','meeting_quotation'];
 function statusLabelFor(a){ return STATUS_LABELS[a.status] || a.status; }
 function pipelineLabelFor(a){ return a.pipelineStage ? KITCHEN_PIPELINE_LABELS[a.pipelineStage] : ''; }
 function pipelineBadgeHtml(a){

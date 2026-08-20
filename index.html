@@ -457,10 +457,21 @@ function notifyNewReferrals(previousIds){
 // fresh data apply silently in the background — it'll show correctly the next
 // time they do something that causes a render anyway (like their own Save).
 let PENDING_LIVE_RENDER = false;
+let CONNECTIONS_UNSUB = null;
+let lastKeystrokeAt = 0;
+document.addEventListener('keydown', ()=>{ lastKeystrokeAt = Date.now(); }, {passive:true, capture:true});
+document.addEventListener('input', ()=>{ lastKeystrokeAt = Date.now(); }, {passive:true, capture:true});
+setInterval(()=>{
+  if(PENDING_LIVE_RENDER && SESSION && !isUserMidEdit()){
+    PENDING_LIVE_RENDER = false;
+    renderApp();
+  }
+}, 3000);
 function isUserMidEdit(){
   const el = document.activeElement;
   if(el && (el.tagName==='INPUT' || el.tagName==='TEXTAREA' || el.tagName==='SELECT')) return true;
   if(document.getElementById('modalOverlay')) return true;
+  if(Date.now() - lastKeystrokeAt < 3000) return true;
   return false;
 }
 // Once the user finishes editing (leaves a field, or closes the modal), apply
@@ -872,7 +883,8 @@ async function loginAs(role, name){
   if(role==='head' || role==='reception'){
     CONNECTIONS = await loadConnections();
     if(USE_FIREBASE){
-      db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
+      if(CONNECTIONS_UNSUB) CONNECTIONS_UNSUB();
+      CONNECTIONS_UNSUB = db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
         CONNECTIONS = doc.exists ? JSON.parse(doc.data().value).map(normalizeConnection) : [];
         if(SESSION && (SESSION.role==='head' || SESSION.role==='reception')){
           if(!isUserMidEdit()) renderApp();
@@ -880,6 +892,9 @@ async function loginAs(role, name){
         }
       });
     }
+  } else if(CONNECTIONS_UNSUB){
+    CONNECTIONS_UNSUB();
+    CONNECTIONS_UNSUB = null;
   }
   renderApp();
   checkAndNotifyDueToday();
@@ -934,6 +949,7 @@ document.getElementById('enterBtn').addEventListener('click', async ()=>{
 function performLogout(reason){
   SESSION = null;
   KNOWN_MY_ASSIGNMENT_IDS = null;
+  if(CONNECTIONS_UNSUB){ CONNECTIONS_UNSUB(); CONNECTIONS_UNSUB = null; }
   document.getElementById('mainApp').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
   [...roleGrid.children].forEach(c=>c.classList.remove('selected'));

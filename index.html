@@ -3547,6 +3547,40 @@ function leadCurrentlyNeedsFollowup(l){
   return l.assignments.some(a=> !assignmentHasPlan(a));
 }
 
+// Three distinct counts for Today's Visits, each measuring a different kind of
+// activity so they don't overlap:
+// 1) A brand-new walk-in customer, added today, by anyone (reception or a
+//    salesperson directly).
+function walkinsAddedTodayCount(){
+  const today = todayStr();
+  return LEADS.filter(l=> l.source==='Walk-in' && l.createdAt.slice(0,10)===today).length;
+}
+// 2) Cross-sell: a lead that ALREADY had at least one referral gets ANOTHER
+//    (different department) referral today — this is the "referred between
+//    salesmen" / cross-selling count, not a first-time referral.
+function crossSellReferralsTodayCount(){
+  const today = todayStr();
+  let n = 0;
+  LEADS.forEach(l=>{
+    const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
+    sorted.forEach((a,i)=>{
+      if(a.assignedAt.slice(0,10)===today && i>0) n++;
+    });
+  });
+  return n;
+}
+// 3) An OLD lead (not created today) getting referred to a sales team for the
+//    very first time today — was sitting unreferred, now finally sent over.
+function oldLeadsReferredTodayCount(){
+  const today = todayStr();
+  let n = 0;
+  LEADS.forEach(l=>{
+    if(l.createdAt.slice(0,10)===today) return; // only leads from before today
+    const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
+    if(sorted.length && sorted[0].assignedAt.slice(0,10)===today) n++;
+  });
+  return n;
+}
 function groupTodayActivityByLead(){
   const today = todayStr();
   const map = new Map();
@@ -3668,6 +3702,11 @@ function viewReports(){
   return `
   <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
   <div class="section-title">Today's Visits (${fmtDate(today)})</div>
+  <div class="stat-grid" style="margin-bottom:14px;">
+    <div class="stat"><div class="n">${walkinsAddedTodayCount()}</div><div class="l">Walk-ins Today</div></div>
+    <div class="stat"><div class="n">${crossSellReferralsTodayCount()}</div><div class="l">Cross-sell Referrals</div></div>
+    <div class="stat"><div class="n">${oldLeadsReferredTodayCount()}</div><div class="l">Old Leads Referred</div></div>
+  </div>
   ${visitGroups.length===0 ? `<div class="empty">No visits logged yet today.</div>` :
     visitGroups.map(g=>`
       <div class="card">

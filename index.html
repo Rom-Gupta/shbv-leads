@@ -3547,7 +3547,15 @@ function groupTodayActivityByLead(){
         if(log.timestamp.slice(0,10)===today) push(l, {team:TEAM_LABELS[a.team], salesperson:a.salesperson, referredBy:a.assignedBy, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
       });
     });
-    if(l.createdAt.slice(0,10)===today && l.source==='Walk-in' && !leadHasAssignments(l)){
+    // Only skip the synthetic 'walk-in added' entry when a salesperson genuinely
+    // self-added this lead today (that case already gets a correctly-labeled entry
+    // from the assignment-log loop above). Anything else that was added today still
+    // shows here, even if it's since been referred — that referral, if it happened,
+    // will show as its own entry (or as the 'still Pending Visit' banner below) too.
+    const selfAddedBySalesperson = (l.assignments||[]).some(a=>
+      (a.log||[]).some(log=> log.remarks==='Lead added directly by salesperson.' && log.timestamp.slice(0,10)===today)
+    );
+    if(l.createdAt.slice(0,10)===today && l.source==='Walk-in' && !selfAddedBySalesperson){
       push(l, {team:'Reception (Walk-in)', salesperson:null, referredBy:null, author:l.createdBy||'Reception', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
     }
   });

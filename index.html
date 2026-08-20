@@ -448,6 +448,31 @@ function notifyNewReferrals(previousIds){
   });
   KNOWN_MY_ASSIGNMENT_IDS = currentIds;
 }
+// Real-time updates from other people's saves come through constantly on a shared
+// app like this. If we blindly re-render the whole page every time, anyone
+// actively typing (a new lead, an outcome update, anything) gets their unsaved
+// work wiped the instant someone else saves — which is exactly the "it just
+// refreshed and I lost everything" bug people were hitting. So: skip the render
+// while the user is actively typing or has a form open in the modal, and let the
+// fresh data apply silently in the background — it'll show correctly the next
+// time they do something that causes a render anyway (like their own Save).
+let PENDING_LIVE_RENDER = false;
+function isUserMidEdit(){
+  const el = document.activeElement;
+  if(el && (el.tagName==='INPUT' || el.tagName==='TEXTAREA' || el.tagName==='SELECT')) return true;
+  if(document.getElementById('modalOverlay')) return true;
+  return false;
+}
+// Once the user finishes editing (leaves a field, or closes the modal), apply
+// any data that arrived in the background while they were busy.
+document.addEventListener('focusout', ()=>{
+  setTimeout(()=>{
+    if(PENDING_LIVE_RENDER && SESSION && !isUserMidEdit()){
+      PENDING_LIVE_RENDER = false;
+      renderApp();
+    }
+  }, 200);
+});
 function subscribeToLiveUpdates(){
   if(!USE_FIREBASE) return;
   db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
@@ -455,10 +480,12 @@ function subscribeToLiveUpdates(){
     LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
     if(previousIds) notifyNewReferrals(previousIds);
     else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
-    if(SESSION) renderApp();
+    if(SESSION && !isUserMidEdit()) renderApp();
+    else if(SESSION) PENDING_LIVE_RENDER = true;
   });
   db.collection('shbv_kv').doc('staff-data').onSnapshot(doc=>{
     STAFF = normalizeStaffObj(doc.exists ? JSON.parse(doc.data().value) : null);
+    if(isUserMidEdit()){ if(SESSION) PENDING_LIVE_RENDER = true; return; }
     if(SESSION) renderApp();
     else if(pendingRole) renderNameCardBody();
   });
@@ -846,7 +873,10 @@ async function loginAs(role, name){
     if(USE_FIREBASE){
       db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
         CONNECTIONS = doc.exists ? JSON.parse(doc.data().value).map(normalizeConnection) : [];
-        if(SESSION && (SESSION.role==='head' || SESSION.role==='reception')) renderApp();
+        if(SESSION && (SESSION.role==='head' || SESSION.role==='reception')){
+          if(!isUserMidEdit()) renderApp();
+          else PENDING_LIVE_RENDER = true;
+        }
       });
     }
   }
@@ -3671,7 +3701,14 @@ function openLeadModal(leadId, focusAssignId, mode, focusSection){
     }, 0);
   }
 }
-function closeModal(){ const o=document.getElementById('modalOverlay'); if(o) o.remove(); }
+function closeModal(){
+  const o=document.getElementById('modalOverlay');
+  if(o) o.remove();
+  if(PENDING_LIVE_RENDER && SESSION && !isUserMidEdit()){
+    PENDING_LIVE_RENDER = false;
+    renderApp();
+  }
+}
 
 function renderLeadDetail(lead, focusAssignId, mode){
   const isReception = SESSION.role==='reception';

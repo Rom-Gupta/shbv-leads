@@ -3663,7 +3663,7 @@ function viewReports(){
         ${g.entries.map(e=>`
           <div class="log-entry">
             <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
-            <span class="badge badge-${e.status==='sale'?'sale':'visited'}">${e.status==='sale'?'Sale Done':(e.status==='new visit'?'Walk-in':'Visited')}</span>
+            <span class="badge badge-${e.status==='new visit'?'pending':e.status}">${e.status==='new visit' ? 'Walk-in' : (STATUS_LABELS[e.status]||e.status)}</span>
           </div>`).join('')}
       </div>`).join('')}
 

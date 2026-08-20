@@ -665,6 +665,7 @@ function fmtTime12(t){
 }
 function isDueToday(dateStr){ if(!dateStr) return false; return dateStr <= todayStr(); }
 function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function resultCountLine(n){ return `<div class="lead-meta" style="margin-bottom:10px;font-weight:700;">${n} result${n===1?'':'s'}</div>`; }
 function bindCityAutocompleteEls(stateSel, cityInput, suggestions){
   if(!cityInput || !suggestions) return;
   function render(){
@@ -1470,7 +1471,7 @@ function renderUpcomingFollowupResults(entries, filterVal){
     list = list.filter(e=> e.team===team && (!name || e.salesperson===name));
   }
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
-  return list.map(e=>`
+  return resultCountLine(list.length) + list.map(e=>`
     <div class="card">
       <div class="card-row">
         <div>
@@ -1573,7 +1574,7 @@ function viewReceptionInbox(sourceFilter){
     const db = b.receptionLog?.length ? b.receptionLog[b.receptionLog.length-1].nextFollowUp||'' : '0000';
     return (da||'0000') < (db||'0000') ? -1 : 1;
   });
-  return sorted.map(l=>leadCardReception(l)).join('');
+  return resultCountLine(sorted.length) + sorted.map(l=>leadCardReception(l)).join('');
 }
 
 function leadCardReception(l){
@@ -2307,7 +2308,7 @@ function renderAllConnectionsSharedResults(search){
   }
   list.sort((a,b)=> a.name.localeCompare(b.name));
   if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : 'No connections saved yet.'}</div>`;
-  return list.map(c=>`
+  return resultCountLine(list.length) + list.map(c=>`
     <div class="card">
       <div class="lead-name">${esc(c.name)}</div>
       <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
@@ -2612,7 +2613,7 @@ function renderConnectionResults(search, filterMode, compact, hideDetails){
     return b.createdAt.localeCompare(a.createdAt);
   });
   if(!list.length) return `<div class="empty">${search ? 'No matching connections.' : (filterMode ? 'Nothing here right now.' : 'No connections saved yet — add your first one above.')}</div>`;
-  return list.map(c=>connectionCard(c, {compact, hideDetails})).join('');
+  return resultCountLine(list.length) + list.map(c=>connectionCard(c, {compact, hideDetails})).join('');
 }
 function bindConnectionCardHandlers(){
   document.querySelectorAll('.toggleSendToReceptionBtn').forEach(btn=>{
@@ -3287,7 +3288,7 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
     list = list.filter(l=> (l.city||'').toLowerCase()===cityFilter.toLowerCase());
   }
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
-  return list.map(l=>leadCardHead(l)).join('');
+  return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
 function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter){
   return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter);
@@ -3363,7 +3364,7 @@ function renderBySalespersonResults(salesEntries, filterVal){
     list = list.filter(s=> s.team===team && (!name || s.name===name));
   }
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
-  return list.map(s=>`
+  return resultCountLine(list.length) + list.map(s=>`
     <div class="card">
       <div class="card-row">
         <div>
@@ -3576,7 +3577,7 @@ function renderFollowupTodayResults(followupGroups, filterVal){
     list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team===teamLabel && (!name || e.salesperson===name))})).filter(g=>g.entries.length);
   }
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
-  return list.map(g=>`
+  return resultCountLine(list.length) + list.map(g=>`
     <div class="card">
       <div class="lead-name">${esc(g.lead.name)}</div>
       <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
@@ -3600,7 +3601,7 @@ function renderNeedsFollowupResults(needsFollowup, filterVal){
     ));
   }
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
-  return list.map(l=>{
+  return resultCountLine(list.length) + list.map(l=>{
     const assignments = l.assignments||[];
     const missing = assignments.filter(a=> !assignmentHasPlan(a));
     const covered = assignments.filter(a=> assignmentHasPlan(a));

@@ -1982,17 +1982,36 @@ function viewHeadOverview(){
         </div>
       </div>`).join('')}
 
-  <div class="section-title" style="margin-top:20px;">📅 Today's Meetings</div>
+  <div class="section-title" style="margin-top:20px;">🔒 Your Meetings Today</div>
+  <div class="lead-meta" style="margin-bottom:8px;">Just your own — from Connections, private to you.</div>
   ${(()=>{
     const t = todayStr();
-    const todayMeetings = collectUpcomingMeetings().filter(m=>m.date===t);
-    if(!todayMeetings.length) return `<div class="empty">No meetings today.</div>`;
-    return todayMeetings.map(m=>`
+    const myMeetings = collectUpcomingMeetings().filter(m=>m.date===t && m.source==='connection');
+    if(!myMeetings.length) return `<div class="empty">No meetings today.</div>`;
+    return myMeetings.map(m=>`
       <div class="card">
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(m.name)}</div>
-            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)} · ${m.source==='kitchen'?'Kitchen/Wardrobe':'Connection'}</div>
+            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)}</div>
+            <div class="lead-meta">Today${m.time?`, at <b>${fmtTime12(m.time)}</b>`:''}</div>
+          </div>
+        </div>
+      </div>`).join('');
+  })()}
+
+  <div class="section-title" style="margin-top:20px;">📅 Sales Team Meetings Today</div>
+  <div class="lead-meta" style="margin-bottom:8px;">These belong to your sales team, not you — shown here for oversight only.</div>
+  ${(()=>{
+    const t = todayStr();
+    const teamMeetings = collectUpcomingMeetings().filter(m=>m.date===t && m.source==='kitchen');
+    if(!teamMeetings.length) return `<div class="empty">No sales team meetings today.</div>`;
+    return teamMeetings.map(m=>`
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(m.name)}</div>
+            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)} · Kitchen/Wardrobe — <b>${esc(m.who)}</b></div>
             <div class="lead-meta">Today${m.time?`, at <b>${fmtTime12(m.time)}</b>`:''}</div>
           </div>
         </div>

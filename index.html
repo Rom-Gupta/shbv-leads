@@ -3547,8 +3547,8 @@ function groupTodayActivityByLead(){
         if(log.timestamp.slice(0,10)===today) push(l, {team:TEAM_LABELS[a.team], salesperson:a.salesperson, referredBy:a.assignedBy, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
       });
     });
-    if(l.createdAt.slice(0,10)===today && l.source==='Walk-in'){
-      push(l, {team:'Reception (Walk-in)', salesperson:null, referredBy:null, author:'—', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
+    if(l.createdAt.slice(0,10)===today && l.source==='Walk-in' && !leadHasAssignments(l)){
+      push(l, {team:'Reception (Walk-in)', salesperson:null, referredBy:null, author:l.createdBy||'Reception', remarks:'New walk-in lead added.', status:'new visit', time:l.createdAt});
     }
   });
   const groups = [...map.values()];
@@ -3649,6 +3649,9 @@ function viewReports(){
       <div class="card">
         <div class="lead-name">${esc(g.lead.name)}</div>
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
+        ${(g.lead.assignments||[]).filter(a=>a.status==='pending').map(a=>`
+          <div class="lead-meta" style="margin-bottom:6px;color:var(--warn);">Referred to <b>${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</b>, still Pending Visit</div>
+        `).join('')}
         ${g.entries.map(e=>`
           <div class="log-entry">
             <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>

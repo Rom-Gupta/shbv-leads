@@ -385,7 +385,14 @@ function normalizeStaffObj(s){
   ['reception','tiles','sanitary','kitchen','windows'].forEach(k=>{
     if(!Array.isArray(s[k])) s[k]=[];
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
-    s[k].forEach(p=>{ if(p.isAssistant && !Array.isArray(p.helping)) p.helping = []; });
+    s[k].forEach(p=>{
+      if(p.isAssistant){
+        if(!Array.isArray(p.helping)) p.helping = [];
+        // Strip any cross-department entries that shouldn't be there — an
+        // assistant can only ever help within their own team.
+        p.helping = p.helping.filter(h=> h.team===k);
+      }
+    });
   });
   if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
   if(!Array.isArray(s.heads) || s.heads.length!==3){
@@ -1667,17 +1674,19 @@ function viewAssistantAllLeads(){
 function viewAssistantHelping(){
   const rec = myAssistantRecord();
   const helping = rec ? (rec.helping||[]) : [];
-  const allSalespeople = realSalespeopleList();
+  // Scoped to this assistant's own department only — a Tiles assistant should
+  // never see or pick Sanitary/Kitchen/Windows salespeople, only their own team.
+  const myTeamSalespeople = realSalespeopleList().filter(p=> p.team===SESSION.role);
   return `
-  <div class="lead-meta" style="margin-bottom:12px;">Pick anyone you're currently helping — you'll see their full leads (active and history) and can log calls on their behalf. Change this anytime, no approval needed.</div>
+  <div class="lead-meta" style="margin-bottom:12px;">Pick anyone on your team (${TEAM_LABELS[SESSION.role]}) you're currently helping — you'll see their full leads (active and history) and can log calls on their behalf. Change this anytime, no approval needed.</div>
   <div class="card">
-    ${allSalespeople.map(p=>{
+    ${myTeamSalespeople.length ? myTeamSalespeople.map(p=>{
       const checked = helping.some(h=>h.team===p.team && h.salesperson===p.name);
       return `<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-weight:600;">
         <input type="checkbox" class="helpingChk" data-team="${p.team}" data-name="${esc(p.name)}" ${checked?'checked':''} style="width:auto;margin:0;">
-        ${esc(p.name)} — ${TEAM_LABELS[p.team]}
+        ${esc(p.name)}
       </label>`;
-    }).join('')}
+    }).join('') : `<div class="empty">No other salespeople in your team yet.</div>`}
     <button class="btn btn-primary btn-sm" id="saveHelpingBtn" style="margin-top:8px;">Save</button>
   </div>
   `;
@@ -4095,7 +4104,9 @@ function bindDynamicHandlers(){
   const saveHelpingBtn = document.getElementById('saveHelpingBtn');
   if(saveHelpingBtn){
     saveHelpingBtn.addEventListener('click', async ()=>{
-      const checked = [...document.querySelectorAll('.helpingChk:checked')].map(chk=>({team:chk.dataset.team, salesperson:chk.dataset.name}));
+      const checked = [...document.querySelectorAll('.helpingChk:checked')]
+        .map(chk=>({team:chk.dataset.team, salesperson:chk.dataset.name}))
+        .filter(h=> h.team===SESSION.role); // never allow saving a cross-department selection
       let rec = myAssistantRecord();
       if(!rec){ toast('Could not find your assistant record'); return; }
       rec.helping = checked;

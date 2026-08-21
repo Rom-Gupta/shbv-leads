@@ -3861,8 +3861,21 @@ function renderLeadDetail(lead, focusAssignId, mode){
   // Reception can always log a note/follow-up call on any lead, referred or not —
   // e.g. a courtesy call, or a post-sale feedback call. 'refer' mode shows nothing here
   // (the refer form is appended separately) so the two actions never appear stacked together.
+  const lastRecLog = lead.receptionLog && lead.receptionLog.length ? lead.receptionLog[lead.receptionLog.length-1] : null;
+  const isPendingFeedbackCall = lastRecLog && lastRecLog.status==='followup' && (lastRecLog.kind==='feedback-sale' || lastRecLog.kind==='feedback-lost');
   if(isReception){
-    if(mode!=='refer'){
+    if(mode!=='refer' && isPendingFeedbackCall){
+      // Feedback calls are a one-off courtesy check-in, not an ongoing follow-up —
+      // no status to pick, no next date to schedule. Just log what they said and
+      // it's done: resolves off Reception's queue immediately.
+      html += `
+      <div class="assign-block">
+        <div class="section-title" style="margin-top:0;">Log Feedback Call</div>
+        <label>Remarks</label>
+        <textarea id="feedbackRemarks" placeholder="What did the customer say?"></textarea>
+        <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
+      </div>`;
+    } else if(mode!=='refer'){
       html += `
       <div class="assign-block">
         <div class="section-title" style="margin-top:0;">Add Follow-up / Update</div>
@@ -4868,6 +4881,25 @@ function bindModalHandlers(lead){
     const recStatusSel = document.getElementById('recStatus');
     const wrap = document.getElementById('recFollowupDateWrap');
     recStatusSel.addEventListener('change', ()=>{ wrap.style.display = recStatusSel.value==='followup' ? 'block':'none'; });
+  }
+
+  const saveFeedbackBtn = document.getElementById('saveFeedbackBtn');
+  if(saveFeedbackBtn){
+    saveFeedbackBtn.addEventListener('click', async ()=>{
+      const remarks = document.getElementById('feedbackRemarks').value.trim();
+      if(!remarks){ toast('Add a remark'); return; }
+      if(!lead.receptionLog) lead.receptionLog=[];
+      // status:'no-followup' resolves it off Reception's queue immediately — a
+      // feedback call is a one-off check-in, not something to keep scheduling.
+      lead.receptionLog.push({
+        timestamp:new Date().toISOString(), author:SESSION.name, remarks,
+        status:'no-followup', nextFollowUp:null
+      });
+      await saveLeads(LEADS);
+      toast('Feedback logged');
+      closeModal();
+      renderApp();
+    });
   }
 
   document.querySelectorAll('.saveAssignBtn').forEach(btn=>{

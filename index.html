@@ -4177,6 +4177,17 @@ function bindDynamicHandlers(){
       if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
         a.postSaleStage = 'completed';
         a.postSaleNextDate = null;
+        // The whole post-sale install process (2D Detailing -> ... -> Punch Order)
+        // just finished — this is when Kitchen's feedback call gets scheduled,
+        // 29 days out, not back when the sale itself was made.
+        const d = new Date(); d.setDate(d.getDate()+29);
+        const feedbackDate = d.toISOString().slice(0,10);
+        if(!targetLead.receptionLog) targetLead.receptionLog = [];
+        targetLead.receptionLog.push({
+          timestamp:new Date().toISOString(), author:'System (auto)',
+          remarks:`Feedback Call (SALE DONE) — auto-scheduled after Kitchen/Wardrobe finished the full post-sale process (Punch Order done). Customer's install is complete — call to check satisfaction/after-sales.`,
+          status:'followup', nextFollowUp: feedbackDate, kind:'feedback-sale'
+        });
       } else {
         a.postSaleStage = stageBeingMarked;
         a.postSaleNextDate = nextDate || null;
@@ -4943,11 +4954,20 @@ function bindModalHandlers(lead){
       if(!a.log) a.log=[];
       a.log.push({timestamp:new Date().toISOString(), author:currentLogAuthor(a), remarks, status, nextFollowUp:a.nextFollowUp});
       // First time this assignment is resolved (Sale Done or Lost): auto-schedule a
-      // reception feedback call 2 days later. The remarks spell out which outcome it
-      // was so reception knows exactly how to open the conversation — congratulating
-      // on a sale, or tactfully checking in on a lost lead.
-      if((status==='sale' && !wasAlreadySale) || (status==='lost' && !wasAlreadyLost)){
-        const d = new Date(); d.setDate(d.getDate()+2);
+      // reception feedback call. Timing depends on the team and outcome:
+      // - Lost (any team): 2 days — quick tactful check-in while it's still fresh.
+      // - Sale Done, Tiles/Sanitary: 15 days.
+      // - Sale Done, Windows: 1 month.
+      // - Sale Done, Kitchen: NOT scheduled here at all — Kitchen has a real
+      //   post-sale install process (2D Detailing through Punch Order), so their
+      //   feedback call only makes sense once that's actually finished. That gets
+      //   scheduled separately, 29 days after Punch Order is marked done.
+      const isKitchenSale = status==='sale' && a.team==='kitchen';
+      if(((status==='sale' && !wasAlreadySale) && !isKitchenSale) || (status==='lost' && !wasAlreadyLost)){
+        const d = new Date();
+        if(status==='lost') d.setDate(d.getDate()+2);
+        else if(a.team==='windows') d.setMonth(d.getMonth()+1);
+        else d.setDate(d.getDate()+15); // tiles, sanitary
         const feedbackDate = d.toISOString().slice(0,10);
         if(!lead.receptionLog) lead.receptionLog=[];
         const remarksText = status==='sale'

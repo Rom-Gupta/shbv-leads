@@ -3872,7 +3872,10 @@ function viewReports(){
   const groups = groupTodayActivityByLead();
 
   const visitGroups = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>['visited','sale','new visit','lost','partial_sale'].includes(e.status))}))
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+      ['visited','sale','new visit','lost','partial_sale'].includes(e.status) &&
+      !(e.status==='lost' && e.team==='Reception') // Reception's own "Not Interested / Loose Lead" — not shown here, sales-team Lost still is
+    )}))
     .filter(g=>g.entries.length);
 
   const followupGroups = buildFollowupTodayGroups();

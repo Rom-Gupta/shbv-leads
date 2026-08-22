@@ -1554,11 +1554,15 @@ function crossSellLeadCard(l){
 // team. Reception's "active" means their normal actionable queue (unreferred, or
 // with a pending follow-up on the books). A team's "active" means any assignment
 // that hasn't resolved yet (not Sale Done, not Lost).
-function renderHeadActiveLeadsResults(filterVal){
+function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter){
   if(!filterVal) return `<div class="empty">Select a filter above to see active leads.</div>`;
   let list;
   if(filterVal==='reception'){
-    list = receptionActionableLeads();
+    // Genuinely still with Reception — not yet referred to anyone. Deliberately
+    // NOT the same list Reception's own "My Leads" uses, since that one also
+    // includes already-referred leads with a pending feedback call — this view
+    // is specifically "what hasn't gone anywhere yet."
+    list = LEADS.filter(l=> !leadHasAssignments(l) && !receptionMarkedLost(l));
   } else if(filterVal.startsWith('sales:')){
     const parts = filterVal.split(':');
     const team = parts[1], name = parts[2];
@@ -1566,6 +1570,8 @@ function renderHeadActiveLeadsResults(filterVal){
   } else {
     list = [];
   }
+  if(sourceFilter) list = list.filter(l=> l.source===sourceFilter);
+  if(sourceFilter==='Physical Marketing' && marketingFilter) list = list.filter(l=> l.marketingPersonName===marketingFilter);
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
@@ -1578,6 +1584,16 @@ function viewHeadActiveLeads(){
   </select>
   <div id="activeLeadsPersonWrap" class="hidden">
     <select id="activeLeadsPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <select id="activeLeadsSourceFilter" style="margin-bottom:10px;">
+    <option value="">All sources</option>
+    ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+  </select>
+  <div id="activeLeadsMarketingWrap" class="hidden">
+    <select id="activeLeadsMarketingFilter" style="margin-bottom:10px;">
+      <option value="">All marketing persons</option>
+      ${(STAFF.marketingPersons||[]).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+    </select>
   </div>
   <div id="activeLeadsResults">${renderHeadActiveLeadsResults('')}</div>
   `;
@@ -4315,6 +4331,9 @@ function bindDynamicHandlers(){
   const activeLeadsDeptFilter = document.getElementById('activeLeadsDeptFilter');
   const activeLeadsPersonWrap = document.getElementById('activeLeadsPersonWrap');
   const activeLeadsPersonFilter = document.getElementById('activeLeadsPersonFilter');
+  const activeLeadsSourceFilter = document.getElementById('activeLeadsSourceFilter');
+  const activeLeadsMarketingWrap = document.getElementById('activeLeadsMarketingWrap');
+  const activeLeadsMarketingFilter = document.getElementById('activeLeadsMarketingFilter');
   function refreshActiveLeads(){
     const dept = activeLeadsDeptFilter.value;
     let filterVal = '';
@@ -4322,7 +4341,9 @@ function bindDynamicHandlers(){
     else if(dept){
       filterVal = activeLeadsPersonFilter.value ? `sales:${dept}:${activeLeadsPersonFilter.value}` : `sales:${dept}`;
     }
-    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal);
+    const sourceVal = activeLeadsSourceFilter ? activeLeadsSourceFilter.value : '';
+    const marketingVal = activeLeadsMarketingFilter ? activeLeadsMarketingFilter.value : '';
+    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal);
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -4341,6 +4362,11 @@ function bindDynamicHandlers(){
       refreshActiveLeads();
     });
     activeLeadsPersonFilter.addEventListener('change', refreshActiveLeads);
+    activeLeadsSourceFilter.addEventListener('change', ()=>{
+      activeLeadsMarketingWrap.classList.toggle('hidden', activeLeadsSourceFilter.value!=='Physical Marketing');
+      refreshActiveLeads();
+    });
+    activeLeadsMarketingFilter.addEventListener('change', refreshActiveLeads);
   }
 
   const followupDeptFilter = document.getElementById('followupDeptFilter');

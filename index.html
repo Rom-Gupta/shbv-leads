@@ -3592,10 +3592,16 @@ function downloadCSV(){
 // call, OR — for Kitchen specifically — has a meeting actually booked in the Align
 // Meeting stage. Without this, every Kitchen lead with a real meeting on the books
 // would wrongly show up as having "no follow-up scheduled".
+// An assignment "has a plan" if it's resolved (sale/lost), has a scheduled follow-up
+// call, has a meeting actually booked (Kitchen's Align Meeting stage), OR the
+// salesperson explicitly logged "No follow-up needed" as the most recent update —
+// that's a deliberate decision, not the same as never having touched it at all.
 function assignmentHasPlan(a){
   if(a.status==='sale' || a.status==='lost') return true;
   if(a.nextFollowUp) return true;
   if(a.team==='kitchen' && a.pipelineStage==='align_meeting' && a.meetingDate) return true;
+  const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
+  if(lastLog && lastLog.status==='no-followup') return true;
   return false;
 }
 function leadCurrentlyNeedsFollowup(l){

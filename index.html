@@ -285,6 +285,34 @@ const firebaseConfig = {
   appId: "1:1098083784943:web:2ff1da8ec50a2b9bae231a"
 };
 const USE_FIREBASE = typeof firebase !== 'undefined';
+// Bumped automatically on every push (see the push script) — used purely to
+// detect when a newer version is live, so people don't need to manually
+// reinstall the app to pick up a fix. Never touch this by hand.
+const APP_VERSION = '20260822104536';
+let UPDATE_BANNER_SHOWN = false;
+async function checkForAppUpdate(){
+  try{
+    const res = await fetch(window.location.pathname + '?cachebust=' + Date.now(), {cache:'no-store'});
+    const text = await res.text();
+    const match = text.match(/const APP_VERSION = '([^']+)'/);
+    if(match && match[1] && match[1] !== APP_VERSION && !UPDATE_BANNER_SHOWN){
+      showUpdateBanner();
+    }
+  }catch(e){ /* offline or blocked — silently skip, try again next interval */ }
+}
+function showUpdateBanner(){
+  UPDATE_BANNER_SHOWN = true;
+  const banner = document.createElement('div');
+  banner.id = 'updateBanner';
+  banner.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:var(--teal);color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px;box-shadow:0 -2px 10px rgba(0,0,0,.15);';
+  banner.innerHTML = `<span>🔄 A new version is available</span><button id="updateBannerBtn" style="background:var(--brass);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;">Refresh Now</button>`;
+  document.body.appendChild(banner);
+  document.getElementById('updateBannerBtn').addEventListener('click', ()=>{
+    window.location.href = window.location.pathname + '?v=' + Date.now();
+  });
+}
+setInterval(checkForAppUpdate, 3*60*1000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkForAppUpdate(); });
 let db = null, auth = null, storage = null;
 if(USE_FIREBASE){
   firebase.initializeApp(firebaseConfig);

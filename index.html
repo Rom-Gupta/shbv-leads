@@ -2843,6 +2843,14 @@ function lastLoginText(p){
 function viewManageLogins(){
   const depts = ['reception','tiles','sanitary','kitchen','windows'];
   return `
+  <div class="card" style="border-color:var(--brass);">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Existing Feedback Call Dates</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">
+      One-time correction: any feedback call already sitting in Reception's queue from before the per-team timing rules were added will still be scheduled at the old flat +2 days. Running this recalculates each one's date based on which team it was for and when the sale actually happened (Tiles/Sanitary: 15 days, Windows: 1 month, Kitchen: 29 days after Punch Order — Kitchen ones not yet finished get removed until they actually qualify). Safe to run more than once; only touches feedback calls still pending, never ones already logged.
+    </div>
+    <button class="btn btn-brass btn-full" id="fixFeedbackDatesBtn">Run Correction</button>
+  </div>
+
   <div class="card">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
     <label>Department</label>
@@ -2927,7 +2935,60 @@ function viewManageLogins(){
   `;
 }
 
+// One-time fix for feedback calls scheduled before the per-team timing rules
+// existed. Only touches entries still pending (last log, status 'followup',
+// kind 'feedback-sale') — never rewrites anything already logged/resolved.
+function correctExistingFeedbackCallDates(){
+  let updated = 0, removed = 0;
+  LEADS.forEach(l=>{
+    if(!l.receptionLog || !l.receptionLog.length) return;
+    const last = l.receptionLog[l.receptionLog.length-1];
+    if(last.kind!=='feedback-sale' || last.status!=='followup') return;
+    let matchedAssign = null;
+    for(const team of Object.keys(TEAM_LABELS)){
+      if(last.remarks && last.remarks.includes(TEAM_LABELS[team])){
+        matchedAssign = (l.assignments||[]).find(a=>a.team===team && a.status==='sale');
+        if(matchedAssign) break;
+      }
+    }
+    if(!matchedAssign) matchedAssign = (l.assignments||[]).find(a=>a.status==='sale');
+    if(!matchedAssign) return;
+    const team = matchedAssign.team;
+    const saleLog = (matchedAssign.log||[]).slice().reverse().find(lg=>lg.status==='sale');
+    const saleDate = saleLog ? new Date(saleLog.timestamp) : new Date(matchedAssign.assignedAt);
+    if(team==='kitchen'){
+      if(matchedAssign.postSaleStage==='completed'){
+        const punchLog = (matchedAssign.postSaleLog||[]).find(pl=>pl.stage==='punch_order');
+        const baseDate = punchLog ? new Date(punchLog.completedAt) : saleDate;
+        const d = new Date(baseDate); d.setDate(d.getDate()+29);
+        last.nextFollowUp = d.toISOString().slice(0,10);
+        updated++;
+      } else {
+        l.receptionLog.pop();
+        removed++;
+      }
+    } else {
+      const d = new Date(saleDate);
+      if(team==='windows') d.setMonth(d.getMonth()+1);
+      else d.setDate(d.getDate()+15);
+      last.nextFollowUp = d.toISOString().slice(0,10);
+      updated++;
+    }
+  });
+  return {updated, removed};
+}
 function bindManageLoginsHandlers(){
+  const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');
+  if(fixFeedbackDatesBtn){
+    fixFeedbackDatesBtn.addEventListener('click', async ()=>{
+      if(!confirm('Recalculate all pending feedback call dates using the correct per-team rules? This only touches ones not yet called.')) return;
+      const {updated, removed} = correctExistingFeedbackCallDates();
+      if(updated===0 && removed===0){ toast('Nothing needed correcting'); return; }
+      await saveLeads(LEADS);
+      toast(`Fixed ${updated} date${updated===1?'':'s'}${removed?`, removed ${removed} not-yet-due Kitchen call${removed===1?'':'s'}`:''}`);
+      renderApp();
+    });
+  }
   const newLoginDeptSel = document.getElementById('newLoginDept');
   const newLoginAssistantWrap = document.getElementById('newLoginAssistantWrap');
   function toggleAssistantWrap(){
@@ -3811,7 +3872,7 @@ function viewReports(){
   const groups = groupTodayActivityByLead();
 
   const visitGroups = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>['visited','sale','new visit'].includes(e.status))}))
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>['visited','sale','new visit','lost','partial_sale'].includes(e.status))}))
     .filter(g=>g.entries.length);
 
   const followupGroups = buildFollowupTodayGroups();

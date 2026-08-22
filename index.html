@@ -555,6 +555,7 @@ function normalizeLead(l){
     if(a.pipelineStage==='site_visit_marking') a.pipelineStage = 'dimension_done';
     if(a.quotationImageUrl===undefined) a.quotationImageUrl = null;
     if(a.postSaleStage===undefined) a.postSaleStage = null;
+    if(a.staleDismissedAt===undefined) a.staleDismissedAt = null;
     if(a.postSaleNextDate===undefined) a.postSaleNextDate = null;
     if(!Array.isArray(a.postSaleLog)) a.postSaleLog = [];
     if(a.companyReferred===undefined) a.companyReferred = false;
@@ -1946,7 +1947,12 @@ function isAssignmentStale(a){
   if(a.status==='sale' || a.status==='lost') return false;
   const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
   const lastTime = lastLog ? lastLog.timestamp : a.assignedAt;
-  return new Date(lastTime).getTime() < cutoff;
+  // Ignoring a stale lead isn't permanent — it just resets the clock, same as if
+  // there'd been real activity. If it's still untouched 3 days after being
+  // dismissed, it correctly flags as stale again.
+  const effectiveTime = (a.staleDismissedAt && new Date(a.staleDismissedAt).getTime() > new Date(lastTime).getTime())
+    ? a.staleDismissedAt : lastTime;
+  return new Date(effectiveTime).getTime() < cutoff;
 }
 function staleAssignments(l){
   return (l.assignments||[]).filter(isAssignmentStale);
@@ -2029,8 +2035,12 @@ function viewHeadOverview(){
           <div>
             <div class="lead-name">${esc(x.lead.name)}</div>
             <div class="lead-meta">${displayPhone(x.lead.phone)}${callIcon(x.lead.phone)}${whatsappIcon(x.lead.phone)}</div>
-            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-              ${x.stale.map(a=>`<span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)}d idle</span>`).join('')}
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px;">
+              ${x.stale.map(a=>`
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="team-tag" style="background:var(--warn);">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: ${daysSince(a.log&&a.log.length?a.log[a.log.length-1].timestamp:a.assignedAt)}d idle</span>
+                  <button class="btn btn-ghost btn-sm ignoreStaleBtn" data-lead-id="${x.lead.id}" data-assign-id="${a.id}" style="padding:2px 10px;">Ignore</button>
+                </div>`).join('')}
             </div>
           </div>
         </div>
@@ -4216,6 +4226,18 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  document.querySelectorAll('.ignoreStaleBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const targetLead = LEADS.find(l=>l.id===btn.dataset.leadId);
+      const a = targetLead && targetLead.assignments.find(x=>x.id===btn.dataset.assignId);
+      if(!a) return;
+      a.staleDismissedAt = new Date().toISOString();
+      await saveLeads(LEADS);
+      toast('Dismissed — will flag again if still idle in 3 more days');
+      renderApp();
+    });
+  });
 
   document.querySelectorAll('.markPostSaleDoneBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{

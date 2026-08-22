@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>window.__APP_VERSION_MARKER__ = '20260822155135';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -288,13 +289,19 @@ const USE_FIREBASE = typeof firebase !== 'undefined';
 // Bumped automatically on every push (see the push script) — used purely to
 // detect when a newer version is live, so people don't need to manually
 // reinstall the app to pick up a fix. Never touch this by hand.
-const APP_VERSION = '20260822153804';
+const APP_VERSION = window.__APP_VERSION_MARKER__;
 let UPDATE_BANNER_SHOWN = false;
+let lastUpdateCheckAt = 0;
 async function checkForAppUpdate(){
   try{
-    const res = await fetch(window.location.pathname + '?cachebust=' + Date.now(), {cache:'no-store'});
+    // The version marker is a standalone script right at the top of <head> —
+    // this Range request only needs the first few hundred bytes, not the
+    // entire ~440KB app, just to check one string.
+    const res = await fetch(window.location.pathname + '?cachebust=' + Date.now(), {
+      cache:'no-store', headers:{'Range':'bytes=0-500'}
+    });
     const text = await res.text();
-    const match = text.match(/const APP_VERSION = '([^']+)'/);
+    const match = text.match(/__APP_VERSION_MARKER__ = '([^']+)'/);
     if(match && match[1] && match[1] !== APP_VERSION && !UPDATE_BANNER_SHOWN){
       showUpdateBanner();
     }
@@ -311,8 +318,15 @@ function showUpdateBanner(){
     window.location.href = window.location.pathname + '?v=' + Date.now();
   });
 }
-setInterval(checkForAppUpdate, 3*60*1000);
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkForAppUpdate(); });
+setInterval(checkForAppUpdate, 5*60*1000);
+document.addEventListener('visibilitychange', ()=>{
+  // Throttle: don't re-check if the tab was only briefly backgrounded (e.g.
+  // quickly switching between apps) — only check if it's been a while.
+  if(!document.hidden && Date.now()-lastUpdateCheckAt > 60*1000){
+    lastUpdateCheckAt = Date.now();
+    checkForAppUpdate();
+  }
+});
 let db = null, auth = null, storage = null;
 if(USE_FIREBASE){
   firebase.initializeApp(firebaseConfig);
@@ -493,10 +507,21 @@ async function loadStaff(){
 }
 let STAFF_SYNCED_SNAPSHOT = null;
 function updateStaffSyncedSnapshot(){ STAFF_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(STAFF)); }
-async function saveStaff(staff){
+// fast=true skips the fetch-merge protection — only use this for low-stakes
+// writes where a rare collision genuinely doesn't matter (e.g. login timestamp
+// tracking, which happens on every single login and shouldn't pay the extra
+// round-trip cost the merge protection needs for things that actually matter,
+// like renames or password changes).
+async function saveStaff(staff, fast){
   const baseline = STAFF_SYNCED_SNAPSHOT || staff;
   try{
     if(USE_FIREBASE){
+      if(fast){
+        STAFF = staff;
+        await db.collection('shbv_kv').doc('staff-data').set({value: JSON.stringify(staff), updatedAt:new Date().toISOString()});
+        updateStaffSyncedSnapshot();
+        return true;
+      }
       const freshDoc = await db.collection('shbv_kv').doc('staff-data').get();
       const fresh = normalizeStaffObj(freshDoc.exists ? JSON.parse(freshDoc.data().value) : null);
       const merged = {...fresh};
@@ -974,7 +999,7 @@ async function loginAs(role, name){
   const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':(TEAM_LABELS[role]+' Sales'+(SESSION.isAssistant?' Assistant':'')));
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
   recordLastLogin(role, name);
-  await saveStaff(STAFF);
+  await saveStaff(STAFF, true);
   if(role==='head' || role==='reception'){
     CONNECTIONS = await loadConnections();
     updateConnectionsSyncedSnapshot();

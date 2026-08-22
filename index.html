@@ -288,13 +288,13 @@ const USE_FIREBASE = typeof firebase !== 'undefined';
 // Bumped automatically on every push (see the push script) — used purely to
 // detect when a newer version is live, so people don't need to manually
 // reinstall the app to pick up a fix. Never touch this by hand.
-const APP_VERSION = '20260822144236';
+const APP_VERSION = '20260822145004';
 let UPDATE_BANNER_SHOWN = false;
 async function checkForAppUpdate(){
   try{
     const res = await fetch(window.location.pathname + '?cachebust=' + Date.now(), {cache:'no-store'});
     const text = await res.text();
-    const match = text.match(/const APP_VERSION = '20260822144236']+)'/);
+    const match = text.match(/const APP_VERSION = '([^']+)'/);
     if(match && match[1] && match[1] !== APP_VERSION && !UPDATE_BANNER_SHOWN){
       showUpdateBanner();
     }
@@ -371,12 +371,31 @@ async function loadConnections(){
     return raw.map(normalizeConnection);
   }catch(e){ console.error('load connections failed', e); return []; }
 }
+let CONNECTIONS_SYNCED_SNAPSHOT = [];
+function updateConnectionsSyncedSnapshot(){ CONNECTIONS_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(CONNECTIONS)); }
 async function saveConnections(list){
+  const baseline = CONNECTIONS_SYNCED_SNAPSHOT;
   try{
     if(USE_FIREBASE){
-      await db.collection('shbv_kv').doc('connections-private').set({value: JSON.stringify(list), updatedAt:new Date().toISOString()});
+      const freshDoc = await db.collection('shbv_kv').doc('connections-private').get();
+      const fresh = freshDoc.exists ? JSON.parse(freshDoc.data().value).map(normalizeConnection) : [];
+      const localVersionOf = new Map(list.map(c=>[c.id, c]));
+      const baselineVersionOf = new Map(baseline.map(c=>[c.id, c]));
+      const seenIds = new Set();
+      const merged = fresh.map(freshConn=>{
+        seenIds.add(freshConn.id);
+        const localVersion = localVersionOf.get(freshConn.id);
+        const wasAtSync = baselineVersionOf.get(freshConn.id);
+        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) return localVersion;
+        return freshConn;
+      });
+      list.forEach(c=>{ if(!seenIds.has(c.id)) merged.push(c); });
+      CONNECTIONS = merged;
+      await db.collection('shbv_kv').doc('connections-private').set({value: JSON.stringify(merged), updatedAt:new Date().toISOString()});
+      updateConnectionsSyncedSnapshot();
     } else {
       await window.storage.set('connections-private', JSON.stringify(list), true);
+      updateConnectionsSyncedSnapshot();
     }
     return true;
   }catch(e){ console.error('save connections failed', e); toast('Could not save — check your connection.'); return false; }
@@ -395,12 +414,42 @@ async function loadLeads(){
     return raw.map(normalizeLead);
   }catch(e){ console.error('load leads failed', e); STORAGE_ERROR = true; return []; }
 }
+// A deep-copy snapshot of LEADS taken at the last point this client was known
+// to be in sync with the server (initial load, or an applied remote update).
+// This is what saveLeads compares against to figure out "what did THIS client
+// actually change" — comparing against it (not against the live LEADS array,
+// which callers mutate in place before saving) is what makes the merge below
+// actually work.
+let LEADS_SYNCED_SNAPSHOT = [];
+function updateLeadsSyncedSnapshot(){ LEADS_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(LEADS)); }
 async function saveLeads(leads){
+  const baseline = LEADS_SYNCED_SNAPSHOT;
+  LEADS = leads;
   try{
     if(USE_FIREBASE){
-      await db.collection('shbv_kv').doc('leads-data').set({value: JSON.stringify(leads), updatedAt:new Date().toISOString()});
+      const freshDoc = await db.collection('shbv_kv').doc('leads-data').get();
+      const freshLeads = freshDoc.exists ? JSON.parse(freshDoc.data().value).map(normalizeLead) : [];
+      const localVersionOf = new Map(leads.map(l=>[l.id, l]));
+      const baselineVersionOf = new Map(baseline.map(l=>[l.id, l]));
+      const seenIds = new Set();
+      const merged = freshLeads.map(freshLead=>{
+        seenIds.add(freshLead.id);
+        const localVersion = localVersionOf.get(freshLead.id);
+        const wasAtSync = baselineVersionOf.get(freshLead.id);
+        // Only take this client's version if it genuinely differs from the last
+        // synced baseline — i.e. this client actually edited this lead since
+        // then. Otherwise defer to the fresh server copy, which may include a
+        // concurrent change from someone else that this client hasn't seen yet.
+        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) return localVersion;
+        return freshLead;
+      });
+      leads.forEach(l=>{ if(!seenIds.has(l.id)) merged.push(l); }); // brand new leads this client added
+      LEADS = merged;
+      await db.collection('shbv_kv').doc('leads-data').set({value: JSON.stringify(merged), updatedAt:new Date().toISOString()});
+      updateLeadsSyncedSnapshot();
     } else {
       await window.storage.set('leads-data', JSON.stringify(leads), true);
+      updateLeadsSyncedSnapshot();
     }
     return true;
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
@@ -442,12 +491,26 @@ async function loadStaff(){
     return normalizeStaffObj(raw);
   }catch(e){ console.error('load staff failed', e); STORAGE_ERROR = true; return defaultStaff(); }
 }
+let STAFF_SYNCED_SNAPSHOT = null;
+function updateStaffSyncedSnapshot(){ STAFF_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(STAFF)); }
 async function saveStaff(staff){
+  const baseline = STAFF_SYNCED_SNAPSHOT || staff;
   try{
     if(USE_FIREBASE){
-      await db.collection('shbv_kv').doc('staff-data').set({value: JSON.stringify(staff), updatedAt:new Date().toISOString()});
+      const freshDoc = await db.collection('shbv_kv').doc('staff-data').get();
+      const fresh = normalizeStaffObj(freshDoc.exists ? JSON.parse(freshDoc.data().value) : null);
+      const merged = {...fresh};
+      ['reception','tiles','sanitary','kitchen','windows'].forEach(dept=>{
+        merged[dept] = JSON.stringify(staff[dept])!==JSON.stringify(baseline[dept]) ? staff[dept] : fresh[dept];
+      });
+      merged.marketingPersons = JSON.stringify(staff.marketingPersons)!==JSON.stringify(baseline.marketingPersons) ? staff.marketingPersons : fresh.marketingPersons;
+      merged.heads = JSON.stringify(staff.heads)!==JSON.stringify(baseline.heads) ? staff.heads : fresh.heads;
+      STAFF = merged;
+      await db.collection('shbv_kv').doc('staff-data').set({value: JSON.stringify(merged), updatedAt:new Date().toISOString()});
+      updateStaffSyncedSnapshot();
     } else {
       await window.storage.set('staff-data', JSON.stringify(staff), true);
+      updateStaffSyncedSnapshot();
     }
     return true;
   }catch(e){ console.error('save staff failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
@@ -518,6 +581,7 @@ function subscribeToLiveUpdates(){
   db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
     const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
     LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
+    updateLeadsSyncedSnapshot();
     if(previousIds) notifyNewReferrals(previousIds);
     else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
     if(SESSION && !isUserMidEdit()) renderApp();
@@ -525,6 +589,7 @@ function subscribeToLiveUpdates(){
   });
   db.collection('shbv_kv').doc('staff-data').onSnapshot(doc=>{
     STAFF = normalizeStaffObj(doc.exists ? JSON.parse(doc.data().value) : null);
+    updateStaffSyncedSnapshot();
     if(isUserMidEdit()){ if(SESSION) PENDING_LIVE_RENDER = true; return; }
     if(SESSION) renderApp();
     else if(pendingRole) renderNameCardBody();
@@ -912,10 +977,12 @@ async function loginAs(role, name){
   await saveStaff(STAFF);
   if(role==='head' || role==='reception'){
     CONNECTIONS = await loadConnections();
+    updateConnectionsSyncedSnapshot();
     if(USE_FIREBASE){
       if(CONNECTIONS_UNSUB) CONNECTIONS_UNSUB();
       CONNECTIONS_UNSUB = db.collection('shbv_kv').doc('connections-private').onSnapshot(doc=>{
         CONNECTIONS = doc.exists ? JSON.parse(doc.data().value).map(normalizeConnection) : [];
+        updateConnectionsSyncedSnapshot();
         if(SESSION && (SESSION.role==='head' || SESSION.role==='reception')){
           if(!isUserMidEdit()) renderApp();
           else PENDING_LIVE_RENDER = true;
@@ -5298,6 +5365,8 @@ function bindModalHandlers(lead){
   try{
     await ensureAuth();
     [LEADS, STAFF] = await Promise.all([loadLeads(), loadStaff()]);
+    updateLeadsSyncedSnapshot();
+    updateStaffSyncedSnapshot();
     subscribeToLiveUpdates();
     document.getElementById('connectingScreen').classList.add('hidden');
     document.getElementById('loginScreen').classList.remove('hidden');

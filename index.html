@@ -3669,7 +3669,7 @@ function entryWhoLabel(e){
 
 // Note: entries here already carry display team labels (e.g. "Tiles"), not raw
 // keys — so we compare against TEAM_LABELS[dept] rather than the raw dept key.
-function renderFollowupTodayResults(followupGroups, filterVal){
+function renderFollowupTodayResults(followupGroups, filterVal, callStatusFilter){
   if(!filterVal) return `<div class="empty">Select a filter above to see today's follow-ups.</div>`;
   let list = followupGroups;
   if(filterVal==='reception'){
@@ -3678,6 +3678,11 @@ function renderFollowupTodayResults(followupGroups, filterVal){
     const parts = filterVal.split(':');
     const teamLabel = TEAM_LABELS[parts[1]], name = parts[2];
     list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team===teamLabel && (!name || e.salesperson===name))})).filter(g=>g.entries.length);
+  }
+  if(callStatusFilter==='pending'){
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='pending-due')})).filter(g=>g.entries.length);
+  } else if(callStatusFilter==='called'){
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status!=='pending-due')})).filter(g=>g.entries.length);
   }
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   list = [...list].sort((a,b)=>{
@@ -3780,6 +3785,11 @@ function viewReports(){
   <div id="followupTodayPersonWrap" class="hidden">
     <select id="followupTodayPersonFilter" style="margin-bottom:10px;"></select>
   </div>
+  <select id="followupTodayCallStatusFilter" style="margin-bottom:10px;">
+    <option value="">Call status: All</option>
+    <option value="pending">Pending — Not Yet Called</option>
+    <option value="called">Already Called</option>
+  </select>
   <div id="followupTodayResults">${renderFollowupTodayResults(followupGroups, '')}</div>
 
   <div class="section-title" style="margin-top:20px;">Customers With No Follow-up Scheduled</div>
@@ -4647,6 +4657,7 @@ function bindDynamicHandlers(){
   const followupTodayDeptFilter = document.getElementById('followupTodayDeptFilter');
   const followupTodayPersonWrap = document.getElementById('followupTodayPersonWrap');
   const followupTodayPersonFilter = document.getElementById('followupTodayPersonFilter');
+  const followupTodayCallStatusFilter = document.getElementById('followupTodayCallStatusFilter');
   function refreshFollowupToday(){
     const followupGroups = buildFollowupTodayGroups();
     const dept = followupTodayDeptFilter.value;
@@ -4655,7 +4666,7 @@ function bindDynamicHandlers(){
     else if(dept){
       filterVal = followupTodayPersonFilter.value ? `sales:${dept}:${followupTodayPersonFilter.value}` : `sales:${dept}`;
     }
-    document.getElementById('followupTodayResults').innerHTML = renderFollowupTodayResults(followupGroups, filterVal);
+    document.getElementById('followupTodayResults').innerHTML = renderFollowupTodayResults(followupGroups, filterVal, followupTodayCallStatusFilter?followupTodayCallStatusFilter.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -4673,6 +4684,7 @@ function bindDynamicHandlers(){
       refreshFollowupToday();
     });
     followupTodayPersonFilter.addEventListener('change', refreshFollowupToday);
+    if(followupTodayCallStatusFilter) followupTodayCallStatusFilter.addEventListener('change', refreshFollowupToday);
   }
 
   const needsFollowupDeptFilter = document.getElementById('needsFollowupDeptFilter');

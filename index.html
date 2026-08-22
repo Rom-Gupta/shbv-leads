@@ -288,7 +288,7 @@ const USE_FIREBASE = typeof firebase !== 'undefined';
 // Bumped automatically on every push (see the push script) — used purely to
 // detect when a newer version is live, so people don't need to manually
 // reinstall the app to pick up a fix. Never touch this by hand.
-const APP_VERSION = '20260822145004';
+const APP_VERSION = '20260822153804';
 let UPDATE_BANNER_SHOWN = false;
 async function checkForAppUpdate(){
   try{
@@ -3914,13 +3914,16 @@ function renderFollowupTodayResults(followupGroups, filterVal, callStatusFilter)
   return resultCountLine(list.length) + list.map(g=>`
     <div class="card">
       <div class="lead-name">${esc(g.lead.name)}</div>
-      <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
+      <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)} · ${esc(g.lead.source||'—')} · Added ${fmtDate(g.lead.createdAt)}</div>
       ${g.entries.map(e=>`
         <div class="log-entry">
           <div class="meta">${entryWhoLabel(e)} · ${e.status==='pending-due'?'Due today':fmtDateTime(e.time)}</div>
           ${e.status==='pending-due' ? `<span class="badge badge-pending-due">PENDING — Not Yet Called</span><div class="meta" style="margin-top:4px;">Last note: ${esc(e.remarks)}</div>` : esc(e.remarks)}
           ${e.status!=='pending-due' && e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
         </div>`).join('')}
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+      </div>
     </div>`).join('');
 }
 function renderNeedsFollowupResults(needsFollowup, filterVal){

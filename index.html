@@ -288,13 +288,13 @@ const USE_FIREBASE = typeof firebase !== 'undefined';
 // Bumped automatically on every push (see the push script) — used purely to
 // detect when a newer version is live, so people don't need to manually
 // reinstall the app to pick up a fix. Never touch this by hand.
-const APP_VERSION = '20260822104536';
+const APP_VERSION = '20260822144236';
 let UPDATE_BANNER_SHOWN = false;
 async function checkForAppUpdate(){
   try{
     const res = await fetch(window.location.pathname + '?cachebust=' + Date.now(), {cache:'no-store'});
     const text = await res.text();
-    const match = text.match(/const APP_VERSION = '([^']+)'/);
+    const match = text.match(/const APP_VERSION = '20260822144236']+)'/);
     if(match && match[1] && match[1] !== APP_VERSION && !UPDATE_BANNER_SHOWN){
       showUpdateBanner();
     }
@@ -3922,7 +3922,7 @@ function viewReports(){
     visitGroups.map(g=>`
       <div class="card">
         <div class="lead-name">${esc(g.lead.name)}</div>
-        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
         ${(g.lead.assignments||[]).filter(a=>a.status==='pending').map(a=>`
           <div class="lead-meta" style="margin-bottom:6px;color:var(--warn);">Referred to <b>${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</b>, still Pending Visit</div>
         `).join('')}
@@ -3931,6 +3931,9 @@ function viewReports(){
             <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
             <span class="badge badge-${e.status==='new visit'?'pending':e.status}">${e.status==='new visit' ? 'Walk-in' : (STATUS_LABELS[e.status]||e.status)}</span>
           </div>`).join('')}
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+        </div>
       </div>`).join('')}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Due Today (Pending + Already Called)</div>

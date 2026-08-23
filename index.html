@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823074810';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823081050';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1691,8 +1691,21 @@ function crossSellLeadCard(l){
 // team. Reception's "active" means their normal actionable queue (unreferred, or
 // with a pending follow-up on the books). A team's "active" means any assignment
 // that hasn't resolved yet (not Sale Done, not Lost).
-function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter){
+function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, kitchenStage){
   if(!filterVal) return `<div class="empty">Select a filter above to see active leads.</div>`;
+  const isKitchenFilter = filterVal.startsWith('sales:kitchen');
+  if(isKitchenFilter && kitchenStage==='donelead'){
+    // Mirrors Kitchen's own "Done Lead" tab: sold, post-sale not yet finished —
+    // shown with the same post-sale progress card, not the normal lead card.
+    const parts = filterVal.split(':');
+    const name = parts[2];
+    const pairs = [];
+    LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
+      if(a.team==='kitchen' && (!name || a.salesperson===name) && a.status==='sale' && a.postSaleStage!=='completed') pairs.push({lead:l, a});
+    }));
+    if(!pairs.length) return `<div class="empty">No sales with post-sale work outstanding right now.</div>`;
+    return resultCountLine(pairs.length) + pairs.map(({lead,a})=>postSaleCard(lead,a)).join('');
+  }
   let list;
   if(filterVal==='reception'){
     // Genuinely still with Reception — not yet referred to anyone. Deliberately
@@ -1704,6 +1717,11 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter){
     const parts = filterVal.split(':');
     const team = parts[1], name = parts[2];
     list = LEADS.filter(l=> (l.assignments||[]).some(a=> a.team===team && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost'));
+    if(isKitchenFilter && kitchenStage==='final'){
+      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage==='meeting_quotation'));
+    } else if(isKitchenFilter && kitchenStage==='leads'){
+      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage!=='meeting_quotation'));
+    }
   } else {
     list = [];
   }
@@ -1721,6 +1739,13 @@ function viewHeadActiveLeads(){
   </select>
   <div id="activeLeadsPersonWrap" class="hidden">
     <select id="activeLeadsPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="activeLeadsKitchenStageWrap" class="hidden">
+    <select id="activeLeadsKitchenStageFilter" style="margin-bottom:10px;">
+      <option value="leads">Leads</option>
+      <option value="final">Final Stage</option>
+      <option value="donelead">Done Lead (Post-Sale Tracking)</option>
+    </select>
   </div>
   <select id="activeLeadsSourceFilter" style="margin-bottom:10px;">
     <option value="">All sources</option>
@@ -4544,6 +4569,8 @@ function bindDynamicHandlers(){
   const activeLeadsDeptFilter = document.getElementById('activeLeadsDeptFilter');
   const activeLeadsPersonWrap = document.getElementById('activeLeadsPersonWrap');
   const activeLeadsPersonFilter = document.getElementById('activeLeadsPersonFilter');
+  const activeLeadsKitchenStageWrap = document.getElementById('activeLeadsKitchenStageWrap');
+  const activeLeadsKitchenStageFilter = document.getElementById('activeLeadsKitchenStageFilter');
   const activeLeadsSourceFilter = document.getElementById('activeLeadsSourceFilter');
   const activeLeadsMarketingWrap = document.getElementById('activeLeadsMarketingWrap');
   const activeLeadsMarketingFilter = document.getElementById('activeLeadsMarketingFilter');
@@ -4556,9 +4583,36 @@ function bindDynamicHandlers(){
     }
     const sourceVal = activeLeadsSourceFilter ? activeLeadsSourceFilter.value : '';
     const marketingVal = activeLeadsMarketingFilter ? activeLeadsMarketingFilter.value : '';
-    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal);
+    const kitchenStage = (dept==='kitchen' && activeLeadsKitchenStageFilter) ? activeLeadsKitchenStageFilter.value : '';
+    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal, kitchenStage);
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+    });
+    document.querySelectorAll('.markPostSaleDoneBtn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const assignId = btn.dataset.assign, leadId = btn.dataset.lead;
+        const targetLead = LEADS.find(l=>l.id===leadId);
+        const a = targetLead && targetLead.assignments.find(x=>x.id===assignId);
+        if(!a) return;
+        const nextDateEl = document.querySelector(`.postSaleNextDateInput[data-assign="${assignId}"]`);
+        const noteEl = document.querySelector(`.postSaleNoteInput[data-assign="${assignId}"]`);
+        const nextDate = nextDateEl ? nextDateEl.value : '';
+        const note = noteEl ? noteEl.value.trim() : '';
+        const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+        const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
+        if(!a.postSaleLog) a.postSaleLog = [];
+        a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+        if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
+          a.postSaleStage = 'completed';
+          a.postSaleNextDate = null;
+        } else {
+          a.postSaleStage = stageBeingMarked;
+          a.postSaleNextDate = nextDate || null;
+        }
+        await saveLeads(LEADS);
+        toast(`${POST_SALE_STAGE_LABELS[stageBeingMarked]} marked done`);
+        renderApp();
+      });
     });
     bindDeleteLeadCardButtons();
   }
@@ -4567,6 +4621,7 @@ function bindDynamicHandlers(){
       const dept = activeLeadsDeptFilter.value;
       const isRealTeam = dept && dept!=='reception';
       activeLeadsPersonWrap.classList.toggle('hidden', !isRealTeam);
+      activeLeadsKitchenStageWrap.classList.toggle('hidden', dept!=='kitchen');
       if(isRealTeam){
         const people = STAFF[dept]||[];
         activeLeadsPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
@@ -4575,6 +4630,7 @@ function bindDynamicHandlers(){
       refreshActiveLeads();
     });
     activeLeadsPersonFilter.addEventListener('change', refreshActiveLeads);
+    if(activeLeadsKitchenStageFilter) activeLeadsKitchenStageFilter.addEventListener('change', refreshActiveLeads);
     activeLeadsSourceFilter.addEventListener('change', ()=>{
       activeLeadsMarketingWrap.classList.toggle('hidden', activeLeadsSourceFilter.value!=='Physical Marketing');
       refreshActiveLeads();

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823081050';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823082341';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1696,7 +1696,8 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
   const isKitchenFilter = filterVal.startsWith('sales:kitchen');
   if(isKitchenFilter && kitchenStage==='donelead'){
     // Mirrors Kitchen's own "Done Lead" tab: sold, post-sale not yet finished —
-    // shown with the same post-sale progress card, not the normal lead card.
+    // shown read-only for Head's oversight, no editing controls (those belong
+    // only to the salesperson actually doing the work).
     const parts = filterVal.split(':');
     const name = parts[2];
     const pairs = [];
@@ -1704,7 +1705,7 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
       if(a.team==='kitchen' && (!name || a.salesperson===name) && a.status==='sale' && a.postSaleStage!=='completed') pairs.push({lead:l, a});
     }));
     if(!pairs.length) return `<div class="empty">No sales with post-sale work outstanding right now.</div>`;
-    return resultCountLine(pairs.length) + pairs.map(({lead,a})=>postSaleCard(lead,a)).join('');
+    return resultCountLine(pairs.length) + pairs.map(({lead,a})=>postSaleReadOnlyCard(lead,a)).join('');
   }
   let list;
   if(filterVal==='reception'){
@@ -1953,6 +1954,41 @@ function viewAssistantHelping(){
 }
 // Post-sale progress card for a Kitchen lead — shows completed stages, the
 // current stage with a way to mark it done + schedule the next stage's date.
+// Read-only version of postSaleCard, for oversight views (Head's Active Leads)
+// — shows exactly where things stand without offering the actual editing
+// controls, which should only ever be used by the salesperson doing the work.
+function postSaleReadOnlyCard(lead, a){
+  const isComplete = a.postSaleStage==='completed';
+  const lastDoneIdx = (a.postSaleStage && !isComplete) ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+  const pendingStage = isComplete ? null : POST_SALE_STAGE_ORDER[lastDoneIdx+1];
+  const doneStages = isComplete ? POST_SALE_STAGE_ORDER : POST_SALE_STAGE_ORDER.slice(0, lastDoneIdx+1);
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(lead.name)}</div>
+        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(a.salesperson)}</div>
+      </div>
+    </div>
+    ${doneStages.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      ${doneStages.map(s=>`<span class="team-tag" style="background:#3D6B4A;">✓ ${POST_SALE_STAGE_LABELS[s]}</span>`).join('')}
+    </div>` : `<div class="lead-meta" style="margin-top:8px;">No step done yet</div>`}
+    ${isComplete ? `<div class="lead-meta" style="margin-top:8px;color:var(--ok);font-weight:600;">✓ All post-sale steps complete</div>` :
+      `<div class="lead-meta" style="margin-top:8px;color:var(--warn);font-weight:600;">Next: ${POST_SALE_STAGE_LABELS[pendingStage]}${a.postSaleNextDate ? ` — expected ${fmtDate(a.postSaleNextDate)}` : ''}</div>`
+    }
+    ${a.postSaleLog && a.postSaleLog.length ? `
+      <div class="section-title" style="margin-top:10px;">History</div>
+      ${a.postSaleLog.slice().reverse().map(e=>`
+        <div class="log-entry">
+          <div class="meta">${esc(e.author||'')} · ${fmtDateTime(e.completedAt)}</div>
+          ${POST_SALE_STAGE_LABELS[e.stage]||e.stage} completed. ${e.remarks?esc(e.remarks):''}
+        </div>`).join('')}
+    ` : ''}
+    <div class="row-btns" style="margin-top:8px;">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View Full Lead</button>
+    </div>
+  </div>`;
+}
 function postSaleCard(lead, a){
   // a.postSaleStage = the last COMPLETED stage, or null if nothing's been done yet,
   // or 'completed' once every stage is finished. The stage still waiting on action

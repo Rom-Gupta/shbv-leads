@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823122714';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823123013';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3905,16 +3905,22 @@ function crossSellReferralsTodayCount(){
   });
   return n;
 }
-// 3) Any lead that ISN'T a Walk-in — Digital Ad, Reference, Physical Marketing,
-//    added today or any day before — getting its first-ever referral today.
-//    Walk-ins are deliberately excluded since they have their own count above.
+// 3) Any lead getting its first-ever referral today, with rules that differ by
+//    source: Digital Ad and Physical Marketing always count here, even if added
+//    the very same day. Walk-in and Reference only count here if the referral
+//    happens on a DIFFERENT day than the lead was added — a same-day Walk-in
+//    referral is already captured under Walk-ins Today instead, and a same-day
+//    Reference referral simply isn't counted anywhere (by design, mirroring
+//    Walk-in's same-day exclusion).
 function oldLeadsReferredTodayCount(){
   const today = todayStr();
   let n = 0;
   LEADS.forEach(l=>{
-    if(l.source==='Walk-in') return;
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
-    if(sorted.length && sorted[0].assignedAt.slice(0,10)===today) n++;
+    if(!sorted.length || sorted[0].assignedAt.slice(0,10)!==today) return; // must be first-referred today
+    const addedToday = l.createdAt.slice(0,10)===today;
+    if((l.source==='Walk-in' || l.source==='Reference') && addedToday) return;
+    n++;
   });
   return n;
 }

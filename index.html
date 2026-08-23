@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260822155135';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823074810';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -589,6 +589,23 @@ function isUserMidEdit(){
   if(el && (el.tagName==='INPUT' || el.tagName==='TEXTAREA' || el.tagName==='SELECT')) return true;
   if(document.getElementById('modalOverlay')) return true;
   if(Date.now() - lastKeystrokeAt < 3000) return true;
+  // The checks above only catch active typing or a modal being open — they
+  // miss a top-level (non-modal) form like + New Lead, where someone fills in
+  // a few fields, then pauses for more than a few seconds (to check a business
+  // card, think about a phone number, etc.) without touching a key. During
+  // that pause, focus and timing alone would say "not mid-edit" even though
+  // there's real unsaved data sitting on screen. So: if any text field
+  // currently on screen actually has something typed into it, treat that as
+  // mid-edit too — regardless of focus or timing. Search/filter boxes are
+  // excluded since their content isn't "data that could be lost."
+  const area = document.getElementById('viewArea');
+  if(area){
+    const fields = area.querySelectorAll('input[type="text"], input[type="tel"], input:not([type]), textarea');
+    for(const f of fields){
+      if(f.id && /search/i.test(f.id)) continue;
+      if(f.value && f.value.trim().length>0) return true;
+    }
+  }
   return false;
 }
 // Once the user finishes editing (leaves a field, or closes the modal), apply

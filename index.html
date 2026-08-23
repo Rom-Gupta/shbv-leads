@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823082341';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823095209';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -395,13 +395,16 @@ async function saveConnections(list){
       const fresh = freshDoc.exists ? JSON.parse(freshDoc.data().value).map(normalizeConnection) : [];
       const localVersionOf = new Map(list.map(c=>[c.id, c]));
       const baselineVersionOf = new Map(baseline.map(c=>[c.id, c]));
+      const localIds = new Set(list.map(c=>c.id));
       const seenIds = new Set();
-      const merged = fresh.map(freshConn=>{
+      const merged = [];
+      fresh.forEach(freshConn=>{
         seenIds.add(freshConn.id);
-        const localVersion = localVersionOf.get(freshConn.id);
         const wasAtSync = baselineVersionOf.get(freshConn.id);
-        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) return localVersion;
-        return freshConn;
+        if(wasAtSync && !localIds.has(freshConn.id)) return; // deleted by this client
+        const localVersion = localVersionOf.get(freshConn.id);
+        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) { merged.push(localVersion); return; }
+        merged.push(freshConn);
       });
       list.forEach(c=>{ if(!seenIds.has(c.id)) merged.push(c); });
       CONNECTIONS = merged;
@@ -445,17 +448,25 @@ async function saveLeads(leads){
       const freshLeads = freshDoc.exists ? JSON.parse(freshDoc.data().value).map(normalizeLead) : [];
       const localVersionOf = new Map(leads.map(l=>[l.id, l]));
       const baselineVersionOf = new Map(baseline.map(l=>[l.id, l]));
+      const localIds = new Set(leads.map(l=>l.id));
       const seenIds = new Set();
-      const merged = freshLeads.map(freshLead=>{
+      const merged = [];
+      freshLeads.forEach(freshLead=>{
         seenIds.add(freshLead.id);
-        const localVersion = localVersionOf.get(freshLead.id);
         const wasAtSync = baselineVersionOf.get(freshLead.id);
+        // This lead existed the last time this client synced, but isn't in its
+        // current array anymore — that means THIS client just deleted it.
+        // Without this check, the merge below would silently resurrect it from
+        // the fresh server copy, since a missing ID looked identical to "not
+        // touched by this client" — which is exactly why Delete looked stuck.
+        if(wasAtSync && !localIds.has(freshLead.id)) return;
+        const localVersion = localVersionOf.get(freshLead.id);
         // Only take this client's version if it genuinely differs from the last
         // synced baseline — i.e. this client actually edited this lead since
         // then. Otherwise defer to the fresh server copy, which may include a
         // concurrent change from someone else that this client hasn't seen yet.
-        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) return localVersion;
-        return freshLead;
+        if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) { merged.push(localVersion); return; }
+        merged.push(freshLead);
       });
       leads.forEach(l=>{ if(!seenIds.has(l.id)) merged.push(l); }); // brand new leads this client added
       LEADS = merged;
@@ -4074,7 +4085,7 @@ function viewReports(){
 
   const visitGroups = groups
     .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
-      ['visited','sale','new visit','lost','partial_sale'].includes(e.status) &&
+      ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
       !(e.status==='lost' && e.team==='Reception') // Reception's own "Not Interested / Loose Lead" — not shown here, sales-team Lost still is
     )}))
     .filter(g=>g.entries.length);

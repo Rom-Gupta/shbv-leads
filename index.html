@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823095209';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260823122714';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3905,13 +3905,14 @@ function crossSellReferralsTodayCount(){
   });
   return n;
 }
-// 3) An OLD lead (not created today) getting referred to a sales team for the
-//    very first time today — was sitting unreferred, now finally sent over.
+// 3) Any lead that ISN'T a Walk-in — Digital Ad, Reference, Physical Marketing,
+//    added today or any day before — getting its first-ever referral today.
+//    Walk-ins are deliberately excluded since they have their own count above.
 function oldLeadsReferredTodayCount(){
   const today = todayStr();
   let n = 0;
   LEADS.forEach(l=>{
-    if(l.createdAt.slice(0,10)===today) return; // only leads from before today
+    if(l.source==='Walk-in') return;
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
     if(sorted.length && sorted[0].assignedAt.slice(0,10)===today) n++;
   });

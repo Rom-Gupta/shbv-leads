@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260824050149';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260824071708';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4295,40 +4295,48 @@ function renderLeadDetail(lead, focusAssignId, mode){
     html += `<div class="empty" style="padding:8px 0;">No reception notes yet.</div>`;
   }
 
-  // Reception can always log a note/follow-up call on any lead, referred or not —
-  // e.g. a courtesy call, or a post-sale feedback call. 'refer' mode shows nothing here
-  // (the refer form is appended separately) so the two actions never appear stacked together.
+  // Reception's general follow-up ability is now scoped strictly to leads that
+  // have never been referred to anyone. Once a lead is with a sales team, only
+  // that salesperson can log follow-ups on it — Reception's only way back in is
+  // the dedicated feedback-call form below, which fires independently per
+  // assignment the moment that specific team marks Sale Done or Lost (so a
+  // still-pending Sanitary assignment doesn't block a resolved Tiles one's
+  // feedback call, or vice versa). Referring to an additional team, or handing
+  // to an assistant, stays available regardless — that's not a follow-up.
   const lastRecLog = lead.receptionLog && lead.receptionLog.length ? lead.receptionLog[lead.receptionLog.length-1] : null;
   const isPendingFeedbackCall = lastRecLog && lastRecLog.status==='followup' && (lastRecLog.kind==='feedback-sale' || lastRecLog.kind==='feedback-lost');
   if(isReception){
-    if(mode!=='refer' && isPendingFeedbackCall){
-      // Feedback calls are a one-off courtesy check-in, not an ongoing follow-up —
-      // no status to pick, no next date to schedule. Just log what they said and
-      // it's done: resolves off Reception's queue immediately.
+    if(mode!=='refer'){
+      if(isPendingFeedbackCall){
+        // Feedback calls are a one-off courtesy check-in, not an ongoing follow-up —
+        // no status to pick, no next date to schedule. Just log what they said and
+        // it's done: resolves off Reception's queue immediately.
+        html += `
+        <div class="assign-block">
+          <div class="section-title" style="margin-top:0;">Log Feedback Call</div>
+          <label>Remarks</label>
+          <textarea id="feedbackRemarks" placeholder="What did the customer say?"></textarea>
+          <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
+        </div>`;
+      } else if(!leadHasAssignments(lead)){
+        html += `
+        <div class="assign-block">
+          <div class="section-title" style="margin-top:0;">Add Follow-up / Update</div>
+          <label>Status</label>
+          <select id="recStatus">
+            <option value="followup">Interested – schedule follow-up</option>
+            <option value="lost">Not interested / Loose Lead</option>
+          </select>
+          <div id="recFollowupDateWrap">
+            <label>Next call date <span style="color:var(--bad);">*</span></label>
+            <input type="date" id="recNextDate" value="">
+          </div>
+          <label>Remarks</label>
+          <textarea id="recRemarks" placeholder="What did the customer say?"></textarea>
+          <button class="btn btn-primary btn-sm" id="saveRecLogBtn">Save Note</button>
+        </div>`;
+      }
       html += `
-      <div class="assign-block">
-        <div class="section-title" style="margin-top:0;">Log Feedback Call</div>
-        <label>Remarks</label>
-        <textarea id="feedbackRemarks" placeholder="What did the customer say?"></textarea>
-        <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
-      </div>`;
-    } else if(mode!=='refer'){
-      html += `
-      <div class="assign-block">
-        <div class="section-title" style="margin-top:0;">Add Follow-up / Update</div>
-        <label>Status</label>
-        <select id="recStatus">
-          <option value="followup">Interested – schedule follow-up</option>
-          <option value="lost">Not interested / Loose Lead</option>
-        </select>
-        <div id="recFollowupDateWrap">
-          <label>Next call date <span style="color:var(--bad);">*</span></label>
-          <input type="date" id="recNextDate" value="">
-        </div>
-        <label>Remarks</label>
-        <textarea id="recRemarks" placeholder="What did the customer say?"></textarea>
-        <button class="btn btn-primary btn-sm" id="saveRecLogBtn">Save Note</button>
-      </div>
       <div class="row-btns">
         <button class="btn btn-brass" id="referBtn">${leadHasAssignments(lead) ? 'Refer to (another) Sales Team' : 'Refer to Sales Team'}</button>
         ${allAssistants().length ? `<button class="btn btn-ghost" id="handToAssistantBtn">📋 Hand to Assistant</button>` : ''}

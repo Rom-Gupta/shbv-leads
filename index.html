@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260823123013';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260824050149';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3924,6 +3924,32 @@ function oldLeadsReferredTodayCount(){
   });
   return n;
 }
+// 4) An old lead (not added today) getting an actual status update today —
+//    Visited, Sale Done, Lost, Partial Sale, or a follow-up call logged — on an
+//    assignment that already existed before today. This is deliberately
+//    separate from "referred": referring a lead for the first time (or as a
+//    cross-sell) is a different kind of event, already covered by the two
+//    counts above — this one is specifically "something happened on an
+//    assignment someone already had."
+function oldLeadsUpdatedTodayCount(){
+  const today = todayStr();
+  let n = 0;
+  LEADS.forEach(l=>{
+    let counted = false;
+    (l.assignments||[]).forEach(a=>{
+      if(counted) return;
+      if(a.assignedAt.slice(0,10)===today) return; // skip brand-new assignments — that's a referral, not an update
+      (a.log||[]).forEach(log=>{
+        if(counted) return;
+        if(log.timestamp.slice(0,10)!==today) return;
+        if(log.status==='pending') return; // a referral-style log entry, not a real update
+        counted = true;
+      });
+    });
+    if(counted) n++;
+  });
+  return n;
+}
 // Calls that are DUE today (a nextFollowUp of today) but haven't actually been
 // made/logged yet today — different from the 'logged today' entries above. This
 // is what lets Head see "who was supposed to be called today but hasn't been."
@@ -4108,6 +4134,7 @@ function viewReports(){
     <div class="stat"><div class="n">${walkinsAddedTodayCount()}</div><div class="l">Walk-ins Today</div></div>
     <div class="stat"><div class="n">${crossSellReferralsTodayCount()}</div><div class="l">Cross-sell Referrals</div></div>
     <div class="stat"><div class="n">${oldLeadsReferredTodayCount()}</div><div class="l">Old Leads Referred</div></div>
+    <div class="stat"><div class="n">${oldLeadsUpdatedTodayCount()}</div><div class="l">Old Leads Updated</div></div>
   </div>
   ${visitGroups.length===0 ? `<div class="empty">No visits logged yet today.</div>` :
     visitGroups.map(g=>`

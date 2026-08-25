@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825065124';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825074840';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1398,10 +1398,11 @@ function receptionDueTodayCount(){
     return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
   }).length;
 }
-// Count of not-yet-referred leads for a given source — the badge on each source
-// sub-tab, so it's obvious at a glance which source has leads waiting.
+// Count of leads for a given source that actually show up in that source's tab
+// — reuses the exact same filter as the list itself (receptionActionableLeads),
+// so the badge number and what you see after tapping in can never mismatch again.
 function receptionUnreferredCountBySource(source){
-  return LEADS.filter(l=> l.source===source && !leadHasAssignments(l)).length;
+  return receptionActionableLeads().filter(l=> l.source===source).length;
 }
 
 /* ---------------- Tabs ---------------- */

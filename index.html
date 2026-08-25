@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825122616';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825171924';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3901,6 +3901,25 @@ function downloadCSV(){
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+// A complete raw backup — every field, every nested assignment, every log
+// entry, every post-sale tracking record — exactly as stored, nothing
+// flattened or summarized. The CSV export above is for opening in a
+// spreadsheet; this is for an actual full data backup.
+function downloadFullBackup(){
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    exportedBy: SESSION ? SESSION.name : 'unknown',
+    leadCount: LEADS.length,
+    leads: LEADS
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`shbv-leads-full-backup-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // An assignment "has a plan" if it's resolved (sale/lost), has a scheduled follow-up
 // call, OR — for Kitchen specifically — has a meeting actually booked in the Align
@@ -4293,7 +4312,8 @@ function viewReports(){
   const needsFollowup = LEADS.filter(leadCurrentlyNeedsFollowup).sort((a,b)=>a.name.localeCompare(b.name));
 
   return `
-  <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
+  <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:8px;">⬇ Export All Leads (CSV backup)</button>
+  <button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;margin-left:8px;">⬇ Full Data Backup (JSON — every detail)</button>
   <div class="section-title">Today's Visits (${fmtDate(today)})</div>
   <div class="stat-grid" style="margin-bottom:14px;" id="dailyStatGrid">
     ${statBox(walkinsAddedTodayCount(), 'Walk-ins Today', 'walkins', DAILY_STAT_FILTER)}
@@ -5350,6 +5370,8 @@ function bindDynamicHandlers(){
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
+  const exportFullBackupBtn = document.getElementById('exportFullBackupBtn');
+  if(exportFullBackupBtn) exportFullBackupBtn.addEventListener('click', downloadFullBackup);
 
   const followupTodayDeptFilter = document.getElementById('followupTodayDeptFilter');
   const followupTodayPersonWrap = document.getElementById('followupTodayPersonWrap');

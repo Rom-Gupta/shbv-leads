@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825074840';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825120944';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -864,6 +864,30 @@ function sourceDetailSuffix(l){
 function toast(msg){
   const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
   document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
+}
+// Wraps a save button's click handler so it can't be double-fired while a save
+// is in flight, and shows "Saving..." so people don't think a click didn't
+// register — saves now take a bit longer (an extra round-trip, on purpose, to
+// stop concurrent saves from overwriting each other), and without this,
+// impatient re-clicking was the #1 cause of "I had to save it 2-3 times."
+function withSavingState(btn, handler){
+  return async (ev)=>{
+    if(btn.dataset.saving==='1') return;
+    btn.dataset.saving = '1';
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try{
+      await handler(ev);
+    } finally {
+      // If the button still exists in the DOM (save didn't close/replace it),
+      // restore it. If the modal closed or the view re-rendered, this is a
+      // harmless no-op on a detached element.
+      btn.dataset.saving = '0';
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  };
 }
 
 /* ---------------- Login flow ---------------- */
@@ -5234,7 +5258,7 @@ function bindDynamicHandlers(){
 
   const saveNewLeadBtn = document.getElementById('saveNewLeadBtn');
   if(saveNewLeadBtn){
-    saveNewLeadBtn.addEventListener('click', async ()=>{
+    saveNewLeadBtn.addEventListener('click', withSavingState(saveNewLeadBtn, async ()=>{
       const name = document.getElementById('newLeadName').value.trim();
       const phone = document.getElementById('newLeadPhone').value.trim();
       const address = document.getElementById('newLeadAddress').value.trim();
@@ -5273,7 +5297,7 @@ function bindDynamicHandlers(){
       ACTIVE_TAB = isSalesAdding ? 'myleads' : (SESSION.role==='head' ? 'leads' : 'inbox');
       if(SESSION.role==='head') ACTIVE_SUBTAB = 'all';
       renderApp();
-    });
+    }));
   }
 
   const searchBox = document.getElementById('searchBox');
@@ -5593,7 +5617,7 @@ function bindModalHandlers(lead){
 
   const saveRecLogBtn = document.getElementById('saveRecLogBtn');
   if(saveRecLogBtn){
-    saveRecLogBtn.addEventListener('click', async ()=>{
+    saveRecLogBtn.addEventListener('click', withSavingState(saveRecLogBtn, async ()=>{
       const status = document.getElementById('recStatus').value;
       const remarks = document.getElementById('recRemarks').value.trim();
       const nextDate = document.getElementById('recNextDate').value;
@@ -5608,7 +5632,7 @@ function bindModalHandlers(lead){
       toast('Note saved');
       closeModal();
       renderApp();
-    });
+    }));
     const recStatusSel = document.getElementById('recStatus');
     const wrap = document.getElementById('recFollowupDateWrap');
     recStatusSel.addEventListener('change', ()=>{ wrap.style.display = recStatusSel.value==='followup' ? 'block':'none'; });
@@ -5616,7 +5640,7 @@ function bindModalHandlers(lead){
 
   const saveFeedbackBtn = document.getElementById('saveFeedbackBtn');
   if(saveFeedbackBtn){
-    saveFeedbackBtn.addEventListener('click', async ()=>{
+    saveFeedbackBtn.addEventListener('click', withSavingState(saveFeedbackBtn, async ()=>{
       const remarks = document.getElementById('feedbackRemarks').value.trim();
       if(!remarks){ toast('Add a remark'); return; }
       if(!lead.receptionLog) lead.receptionLog=[];
@@ -5630,11 +5654,11 @@ function bindModalHandlers(lead){
       toast('Feedback logged');
       closeModal();
       renderApp();
-    });
+    }));
   }
 
   document.querySelectorAll('.saveAssignBtn').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.addEventListener('click', withSavingState(btn, async ()=>{
       const aid = btn.dataset.assign;
       const a = lead.assignments.find(x=>x.id===aid);
       const prevStatus = a.status;
@@ -5704,7 +5728,7 @@ function bindModalHandlers(lead){
       toast('Outcome saved');
       closeModal();
       renderApp();
-    });
+    }));
   });
 
   document.querySelectorAll('.noFutureFollowupChk').forEach(chk=>{
@@ -5716,7 +5740,7 @@ function bindModalHandlers(lead){
   });
 
   document.querySelectorAll('.saveFollowupBtn').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.addEventListener('click', withSavingState(btn, async ()=>{
       const aid = btn.dataset.assign;
       const a = lead.assignments.find(x=>x.id===aid);
       const remarks = document.querySelector(`.followupRemarksInput[data-assign="${aid}"]`).value.trim();
@@ -5738,7 +5762,7 @@ function bindModalHandlers(lead){
       toast(noFuture ? 'Call logged — no future follow-up set' : 'Follow-up call logged');
       closeModal();
       renderApp();
-    });
+    }));
   });
 }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825171924';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825172755';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3600,6 +3600,7 @@ function viewAllLeads(){
   const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
   const cities = Array.from(new Set(LEADS.map(l=>l.city).filter(Boolean))).sort();
   return `
+  ${SESSION.role==='head' ? `<button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;">⬇ Full Data Backup (JSON — every detail)</button>` : ''}
   <div class="searchbar"><input type="text" id="searchBox" placeholder="Search by name or phone..."></div>
   <div class="filter-row">
     <select id="filterTeam">
@@ -4312,8 +4313,7 @@ function viewReports(){
   const needsFollowup = LEADS.filter(leadCurrentlyNeedsFollowup).sort((a,b)=>a.name.localeCompare(b.name));
 
   return `
-  <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:8px;">⬇ Export All Leads (CSV backup)</button>
-  <button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;margin-left:8px;">⬇ Full Data Backup (JSON — every detail)</button>
+  <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
   <div class="section-title">Today's Visits (${fmtDate(today)})</div>
   <div class="stat-grid" style="margin-bottom:14px;" id="dailyStatGrid">
     ${statBox(walkinsAddedTodayCount(), 'Walk-ins Today', 'walkins', DAILY_STAT_FILTER)}

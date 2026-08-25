@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825120944';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825122616';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4208,16 +4208,20 @@ function renderCustomFollowupResults(followupGroups, filterVal){
 function viewCustomDateReport(){
   const targetDate = getCustomReportDate();
   const groups = groupTodayActivityByLead(targetDate);
-  let visitGroups = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
-      ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
-      !(e.status==='lost' && e.team==='Reception')
-    )}))
-    .filter(g=>g.entries.length);
-
+  let visitGroups;
   if(CUSTOM_STAT_FILTER){
     const matchIds = new Set(statFilterLeads(CUSTOM_STAT_FILTER, targetDate).map(l=>l.id));
-    visitGroups = visitGroups.filter(g=> matchIds.has(g.lead.id));
+    visitGroups = groups
+      .filter(g=> matchIds.has(g.lead.id))
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=> !(e.status==='lost' && e.team==='Reception'))}))
+      .filter(g=>g.entries.length);
+  } else {
+    visitGroups = groups
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+        ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
+        !(e.status==='lost' && e.team==='Reception')
+      )}))
+      .filter(g=>g.entries.length);
   }
 
   const followupGroups = buildFollowupForDateGroups(targetDate);
@@ -4265,16 +4269,23 @@ function viewReports(){
   const today = todayStr();
   const groups = groupTodayActivityByLead();
 
-  let visitGroups = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
-      ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
-      !(e.status==='lost' && e.team==='Reception') // Reception's own "Not Interested / Loose Lead" — not shown here, sales-team Lost still is
-    )}))
-    .filter(g=>g.entries.length);
-
+  let visitGroups;
   if(DAILY_STAT_FILTER){
+    // Show everything that happened today for the matching leads — including a
+    // follow-up call, not just a visit/status change — otherwise the card list
+    // silently shows fewer leads than the stat number says matched.
     const matchIds = new Set(statFilterLeads(DAILY_STAT_FILTER, today).map(l=>l.id));
-    visitGroups = visitGroups.filter(g=> matchIds.has(g.lead.id));
+    visitGroups = groups
+      .filter(g=> matchIds.has(g.lead.id))
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=> !(e.status==='lost' && e.team==='Reception'))}))
+      .filter(g=>g.entries.length);
+  } else {
+    visitGroups = groups
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+        ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
+        !(e.status==='lost' && e.team==='Reception') // Reception's own "Not Interested / Loose Lead" — not shown here, sales-team Lost still is
+      )}))
+      .filter(g=>g.entries.length);
   }
 
   const followupGroups = buildFollowupTodayGroups();

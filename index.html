@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825064432';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825064739';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4123,12 +4123,42 @@ function renderNeedsFollowupResults(needsFollowup, filterVal){
 // A follow-up-calls-logged view for an arbitrary date. Unlike buildFollowupTodayGroups
 // (used on the Daily tab), this has no "pending — not yet called" concept, since
 // that's inherently about right-now; for a past date we just show what was
-// actually logged that day.
+// actually logged that day — including Lost calls, so the full picture of that
+// day's calls is visible, not just the ones that ended in a scheduled follow-up.
 function buildFollowupForDateGroups(targetDate){
   const groups = groupTodayActivityByLead(targetDate);
   return groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup')}))
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup' || e.status==='lost')}))
     .filter(g=>g.entries.length);
+}
+// Same Reception/Team/Salesperson cascading filter used everywhere else in the
+// app, applied to a custom date's logged calls so it's never one big unfiltered
+// cluster to scroll through.
+function renderCustomFollowupResults(followupGroups, filterVal){
+  if(!filterVal) return `<div class="empty">Select a filter above to see calls for this date.</div>`;
+  let list = followupGroups;
+  if(filterVal==='reception'){
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team==='Reception')})).filter(g=>g.entries.length);
+  } else if(filterVal.startsWith('sales:')){
+    const parts = filterVal.split(':');
+    const teamLabel = TEAM_LABELS[parts[1]], name = parts[2];
+    list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team===teamLabel && (!name || e.salesperson===name))})).filter(g=>g.entries.length);
+  }
+  if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
+  return resultCountLine(list.length) + list.map(g=>`
+    <div class="card">
+      <div class="lead-name">${esc(g.lead.name)}</div>
+      <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
+      ${g.entries.map(e=>`
+        <div class="log-entry">
+          <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
+          ${e.status==='lost' ? `<span class="badge badge-lost">LOST</span><div class="meta" style="margin-top:4px;">${esc(e.remarks)}</div>` : esc(e.remarks)}
+          ${e.status!=='lost' && e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
+        </div>`).join('')}
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+      </div>
+    </div>`).join('');
 }
 // Custom date report — same shape as the Daily report, but for any date Head
 // picks, so a busy day can be reviewed later instead of only ever seeing "today."
@@ -4170,20 +4200,15 @@ function viewCustomDateReport(){
       </div>`).join('')}
 
   <div class="section-title" style="margin-top:20px;">Follow-up Calls Logged on ${fmtDate(targetDate)}</div>
-  ${followupGroups.length===0 ? `<div class="empty">No follow-up calls logged on this date.</div>` :
-    followupGroups.map(g=>`
-      <div class="card">
-        <div class="lead-name">${esc(g.lead.name)}</div>
-        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
-        ${g.entries.map(e=>`
-          <div class="log-entry">
-            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
-            ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
-          </div>`).join('')}
-        <div class="row-btns">
-          <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
-        </div>
-      </div>`).join('')}
+  <select id="customFollowupDeptFilter" style="margin-bottom:10px;">
+    <option value="">— Please select —</option>
+    <option value="reception">Reception</option>
+    ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+  </select>
+  <div id="customFollowupPersonWrap" class="hidden">
+    <select id="customFollowupPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="customFollowupResults">${renderCustomFollowupResults(followupGroups, '')}</div>
   `;
 }
 function viewReports(){
@@ -4684,6 +4709,37 @@ function bindDynamicHandlers(){
       CUSTOM_REPORT_DATE = customReportDateInput.value;
       renderApp();
     });
+  }
+
+  const customFollowupDeptFilter = document.getElementById('customFollowupDeptFilter');
+  const customFollowupPersonWrap = document.getElementById('customFollowupPersonWrap');
+  const customFollowupPersonFilter = document.getElementById('customFollowupPersonFilter');
+  if(customFollowupDeptFilter){
+    function refreshCustomFollowup(){
+      const followupGroups = buildFollowupForDateGroups(getCustomReportDate());
+      const dept = customFollowupDeptFilter.value;
+      let filterVal = '';
+      if(dept==='reception') filterVal = 'reception';
+      else if(dept){
+        filterVal = customFollowupPersonFilter.value ? `sales:${dept}:${customFollowupPersonFilter.value}` : `sales:${dept}`;
+      }
+      document.getElementById('customFollowupResults').innerHTML = renderCustomFollowupResults(followupGroups, filterVal);
+      document.querySelectorAll('[data-open-lead]').forEach(el=>{
+        el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+      });
+    }
+    customFollowupDeptFilter.addEventListener('change', ()=>{
+      const dept = customFollowupDeptFilter.value;
+      const isRealTeam = dept && dept!=='reception';
+      customFollowupPersonWrap.classList.toggle('hidden', !isRealTeam);
+      if(isRealTeam){
+        const people = STAFF[dept]||[];
+        customFollowupPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
+          people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+      }
+      refreshCustomFollowup();
+    });
+    customFollowupPersonFilter.addEventListener('change', refreshCustomFollowup);
   }
 
   document.querySelectorAll('.ignoreStaleBtn').forEach(btn=>{

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825172755';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825173111';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3990,12 +3990,11 @@ function oldLeadsReferredTodayLeads(targetDate){
 }
 function oldLeadsReferredTodayCount(targetDate){ return oldLeadsReferredTodayLeads(targetDate).length; }
 // 4) An old lead (not added today) getting an actual status update today —
-//    Visited, Sale Done, Lost, Partial Sale, or a follow-up call logged — on an
-//    assignment that already existed before today. This is deliberately
-//    separate from "referred": referring a lead for the first time (or as a
-//    cross-sell) is a different kind of event, already covered by the two
-//    counts above — this one is specifically "something happened on an
-//    assignment someone already had."
+//    Visited, Sale Done, Lost, or Partial Sale — on an assignment that already
+//    existed before today. Deliberately excludes follow-up calls (status
+//    'followup'/'no-followup') and referrals (status 'pending') — those have
+//    their own dedicated sections on the same page, so counting them here too
+//    would just be showing the same activity twice.
 function oldLeadsUpdatedTodayLeads(targetDate){
   const today = targetDate || todayStr();
   const out = [];
@@ -4007,7 +4006,7 @@ function oldLeadsUpdatedTodayLeads(targetDate){
       (a.log||[]).forEach(log=>{
         if(counted) return;
         if(log.timestamp.slice(0,10)!==today) return;
-        if(log.status==='pending') return; // a referral-style log entry, not a real update
+        if(!['visited','sale','lost','partial_sale'].includes(log.status)) return;
         counted = true;
       });
     });
@@ -4233,7 +4232,10 @@ function viewCustomDateReport(){
     const matchIds = new Set(statFilterLeads(CUSTOM_STAT_FILTER, targetDate).map(l=>l.id));
     visitGroups = groups
       .filter(g=> matchIds.has(g.lead.id))
-      .map(g=>({lead:g.lead, entries:g.entries.filter(e=> !(e.status==='lost' && e.team==='Reception'))}))
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+        !(e.status==='lost' && e.team==='Reception') &&
+        !(CUSTOM_STAT_FILTER==='oldupdated' && (e.status==='followup' || e.status==='no-followup'))
+      )}))
       .filter(g=>g.entries.length);
   } else {
     visitGroups = groups
@@ -4293,11 +4295,17 @@ function viewReports(){
   if(DAILY_STAT_FILTER){
     // Show everything that happened today for the matching leads — including a
     // follow-up call, not just a visit/status change — otherwise the card list
-    // silently shows fewer leads than the stat number says matched.
+    // silently shows fewer leads than the stat number says matched. The one
+    // exception is Old Leads Updated itself: that's specifically about status
+    // changes, so follow-up entries are excluded here too — they already have
+    // their own dedicated section further down the page.
     const matchIds = new Set(statFilterLeads(DAILY_STAT_FILTER, today).map(l=>l.id));
     visitGroups = groups
       .filter(g=> matchIds.has(g.lead.id))
-      .map(g=>({lead:g.lead, entries:g.entries.filter(e=> !(e.status==='lost' && e.team==='Reception'))}))
+      .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+        !(e.status==='lost' && e.team==='Reception') &&
+        !(DAILY_STAT_FILTER==='oldupdated' && (e.status==='followup' || e.status==='no-followup'))
+      )}))
       .filter(g=>g.entries.length);
   } else {
     visitGroups = groups

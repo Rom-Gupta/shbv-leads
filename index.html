@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260824071708';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825063823';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1432,7 +1432,7 @@ function tabsFor(role){
     {id:'connections', label:'Connections', badge:()=>myConnectionsDueTodayCount(),
       sub:[{id:'add', label:'Add Connection'}, {id:'my', label:'My Connections'}, {id:'all', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
     {id:'reports', label:'Reports',
-      sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
+      sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}, {id:'custom', label:'Custom'}]},
     {id:'logins', label:'Manage Logins'},
   ];
   if(SESSION && SESSION.isAssistant) return [
@@ -1539,6 +1539,7 @@ async function renderApp(){
     else if(ACTIVE_TAB==='reports'){
       if(ACTIVE_SUBTAB==='weekly') area.innerHTML = viewWeeklyReport();
       else if(ACTIVE_SUBTAB==='monthly') area.innerHTML = viewMonthlyReport();
+      else if(ACTIVE_SUBTAB==='custom') area.innerHTML = viewCustomDateReport();
       else area.innerHTML = viewReports();
     }
     else if(ACTIVE_TAB==='logins') area.innerHTML = viewManageLogins();
@@ -3377,6 +3378,8 @@ function defaultWeekRange(){
   return {start: start.toISOString().slice(0,10), end: end.toISOString().slice(0,10)};
 }
 let WEEK_RANGE = null;
+let CUSTOM_REPORT_DATE = null;
+function getCustomReportDate(){ if(!CUSTOM_REPORT_DATE) CUSTOM_REPORT_DATE = todayStr(); return CUSTOM_REPORT_DATE; }
 function getWeekRange(){ if(!WEEK_RANGE) WEEK_RANGE = defaultWeekRange(); return WEEK_RANGE; }
 
 function inRange(iso, start, end){ const d = iso.slice(0,10); return d>=start && d<=end; }
@@ -3887,15 +3890,15 @@ function leadCurrentlyNeedsFollowup(l){
 // activity so they don't overlap:
 // 1) A brand-new walk-in customer, added today, by anyone (reception or a
 //    salesperson directly).
-function walkinsAddedTodayCount(){
-  const today = todayStr();
+function walkinsAddedTodayCount(targetDate){
+  const today = targetDate || todayStr();
   return LEADS.filter(l=> l.source==='Walk-in' && l.createdAt.slice(0,10)===today).length;
 }
 // 2) Cross-sell: a lead that ALREADY had at least one referral gets ANOTHER
 //    (different department) referral today — this is the "referred between
 //    salesmen" / cross-selling count, not a first-time referral.
-function crossSellReferralsTodayCount(){
-  const today = todayStr();
+function crossSellReferralsTodayCount(targetDate){
+  const today = targetDate || todayStr();
   let n = 0;
   LEADS.forEach(l=>{
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
@@ -3912,8 +3915,8 @@ function crossSellReferralsTodayCount(){
 //    referral is already captured under Walk-ins Today instead, and a same-day
 //    Reference referral simply isn't counted anywhere (by design, mirroring
 //    Walk-in's same-day exclusion).
-function oldLeadsReferredTodayCount(){
-  const today = todayStr();
+function oldLeadsReferredTodayCount(targetDate){
+  const today = targetDate || todayStr();
   let n = 0;
   LEADS.forEach(l=>{
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
@@ -3931,8 +3934,8 @@ function oldLeadsReferredTodayCount(){
 //    cross-sell) is a different kind of event, already covered by the two
 //    counts above — this one is specifically "something happened on an
 //    assignment someone already had."
-function oldLeadsUpdatedTodayCount(){
-  const today = todayStr();
+function oldLeadsUpdatedTodayCount(targetDate){
+  const today = targetDate || todayStr();
   let n = 0;
   LEADS.forEach(l=>{
     let counted = false;
@@ -3994,8 +3997,8 @@ function buildFollowupTodayGroups(){
   });
   return [...merged.values()];
 }
-function groupTodayActivityByLead(){
-  const today = todayStr();
+function groupTodayActivityByLead(targetDate){
+  const today = targetDate || todayStr();
   const map = new Map();
   function push(l, entry){
     if(!map.has(l.id)) map.set(l.id, {lead:l, entries:[]});
@@ -4111,6 +4114,72 @@ function renderNeedsFollowupResults(needsFollowup, filterVal){
       </div>
     </div>`;
   }).join('');
+}
+// A follow-up-calls-logged view for an arbitrary date. Unlike buildFollowupTodayGroups
+// (used on the Daily tab), this has no "pending — not yet called" concept, since
+// that's inherently about right-now; for a past date we just show what was
+// actually logged that day.
+function buildFollowupForDateGroups(targetDate){
+  const groups = groupTodayActivityByLead(targetDate);
+  return groups
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup')}))
+    .filter(g=>g.entries.length);
+}
+// Custom date report — same shape as the Daily report, but for any date Head
+// picks, so a busy day can be reviewed later instead of only ever seeing "today."
+function viewCustomDateReport(){
+  const targetDate = getCustomReportDate();
+  const groups = groupTodayActivityByLead(targetDate);
+  const visitGroups = groups
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
+      ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
+      !(e.status==='lost' && e.team==='Reception')
+    )}))
+    .filter(g=>g.entries.length);
+  const followupGroups = buildFollowupForDateGroups(targetDate);
+
+  return `
+  <div class="section-title" style="margin-top:0;">Pick a Date</div>
+  <input type="date" id="customReportDateInput" value="${targetDate}" max="${todayStr()}" style="margin-bottom:18px;">
+
+  <div class="section-title">Activity on ${fmtDate(targetDate)}</div>
+  <div class="stat-grid" style="margin-bottom:14px;">
+    <div class="stat"><div class="n">${walkinsAddedTodayCount(targetDate)}</div><div class="l">Walk-ins</div></div>
+    <div class="stat"><div class="n">${crossSellReferralsTodayCount(targetDate)}</div><div class="l">Cross-sell Referrals</div></div>
+    <div class="stat"><div class="n">${oldLeadsReferredTodayCount(targetDate)}</div><div class="l">Old Leads Referred</div></div>
+    <div class="stat"><div class="n">${oldLeadsUpdatedTodayCount(targetDate)}</div><div class="l">Old Leads Updated</div></div>
+  </div>
+  ${visitGroups.length===0 ? `<div class="empty">No activity logged on this date.</div>` :
+    visitGroups.map(g=>`
+      <div class="card">
+        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
+        ${g.entries.map(e=>`
+          <div class="log-entry">
+            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
+            <span class="badge badge-${e.status==='new visit'?'pending':e.status}">${e.status==='new visit' ? 'Walk-in' : (STATUS_LABELS[e.status]||e.status)}</span>
+          </div>`).join('')}
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+        </div>
+      </div>`).join('')}
+
+  <div class="section-title" style="margin-top:20px;">Follow-up Calls Logged on ${fmtDate(targetDate)}</div>
+  ${followupGroups.length===0 ? `<div class="empty">No follow-up calls logged on this date.</div>` :
+    followupGroups.map(g=>`
+      <div class="card">
+        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
+        ${g.entries.map(e=>`
+          <div class="log-entry">
+            <div class="meta">${entryWhoLabel(e)} · ${fmtDateTime(e.time)}</div>
+            ${esc(e.remarks)} ${e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
+          </div>`).join('')}
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+        </div>
+      </div>`).join('')}
+  `;
 }
 function viewReports(){
   const today = todayStr();
@@ -4602,6 +4671,15 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  const customReportDateInput = document.getElementById('customReportDateInput');
+  if(customReportDateInput){
+    customReportDateInput.addEventListener('change', ()=>{
+      if(!customReportDateInput.value) return;
+      CUSTOM_REPORT_DATE = customReportDateInput.value;
+      renderApp();
+    });
+  }
 
   document.querySelectorAll('.ignoreStaleBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{

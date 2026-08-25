@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825063823';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825064432';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3983,10 +3983,13 @@ function pendingDueTodayGroups(){
 }
 // Combines both: calls actually made/logged today, AND calls due today that are
 // still sitting pending — merged per lead so Head sees the full picture at once.
+// "Logged" includes both a genuine follow-up (status: followup) AND a Lost mark
+// (status: lost) — Lost is still a real call that happened today, and leaving
+// it out understated how many calls were actually made.
 function buildFollowupTodayGroups(){
   const groups = groupTodayActivityByLead();
   const logged = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup')}))
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup' || e.status==='lost')}))
     .filter(g=>g.entries.length);
   const pending = pendingDueTodayGroups();
   const merged = new Map();
@@ -4068,8 +4071,10 @@ function renderFollowupTodayResults(followupGroups, filterVal, callStatusFilter)
       ${g.entries.map(e=>`
         <div class="log-entry">
           <div class="meta">${entryWhoLabel(e)} · ${e.status==='pending-due'?'Due today':fmtDateTime(e.time)}</div>
-          ${e.status==='pending-due' ? `<span class="badge badge-pending-due">PENDING — Not Yet Called</span><div class="meta" style="margin-top:4px;">Last note: ${esc(e.remarks)}</div>` : esc(e.remarks)}
-          ${e.status!=='pending-due' && e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
+          ${e.status==='pending-due' ? `<span class="badge badge-pending-due">PENDING — Not Yet Called</span><div class="meta" style="margin-top:4px;">Last note: ${esc(e.remarks)}</div>`
+            : e.status==='lost' ? `<span class="badge badge-lost">LOST</span><div class="meta" style="margin-top:4px;">${esc(e.remarks)}</div>`
+            : esc(e.remarks)}
+          ${e.status!=='pending-due' && e.status!=='lost' && e.nextFollowUp?`<div class="meta">Next call: ${fmtDate(e.nextFollowUp)}</div>`:''}
         </div>`).join('')}
       <div class="row-btns">
         <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>

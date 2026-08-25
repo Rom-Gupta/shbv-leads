@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825064739';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260825065124';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3379,6 +3379,22 @@ function defaultWeekRange(){
 }
 let WEEK_RANGE = null;
 let CUSTOM_REPORT_DATE = null;
+let DAILY_STAT_FILTER = null; // 'walkins' | 'crosssell' | 'oldreferred' | 'oldupdated' | null
+let CUSTOM_STAT_FILTER = null;
+const STAT_FILTER_LABELS = {walkins:'Walk-ins', crosssell:'Cross-sell Referrals', oldreferred:'Old Leads Referred', oldupdated:'Old Leads Updated'};
+function statFilterLeads(key, targetDate){
+  if(key==='walkins') return walkinsAddedTodayLeads(targetDate);
+  if(key==='crosssell') return crossSellReferralsTodayLeads(targetDate);
+  if(key==='oldreferred') return oldLeadsReferredTodayLeads(targetDate);
+  if(key==='oldupdated') return oldLeadsUpdatedTodayLeads(targetDate);
+  return null;
+}
+function statBox(count, label, key, activeKey){
+  const isActive = activeKey===key;
+  return `<div class="stat statClickable${isActive?' statActive':''}" data-stat-key="${key}" style="cursor:pointer;${isActive?`border-color:var(--brass);box-shadow:0 0 0 2px var(--brass);`:''}">
+    <div class="n">${count}</div><div class="l">${label}</div>
+  </div>`;
+}
 function getCustomReportDate(){ if(!CUSTOM_REPORT_DATE) CUSTOM_REPORT_DATE = todayStr(); return CUSTOM_REPORT_DATE; }
 function getWeekRange(){ if(!WEEK_RANGE) WEEK_RANGE = defaultWeekRange(); return WEEK_RANGE; }
 
@@ -3890,24 +3906,24 @@ function leadCurrentlyNeedsFollowup(l){
 // activity so they don't overlap:
 // 1) A brand-new walk-in customer, added today, by anyone (reception or a
 //    salesperson directly).
-function walkinsAddedTodayCount(targetDate){
+function walkinsAddedTodayLeads(targetDate){
   const today = targetDate || todayStr();
-  return LEADS.filter(l=> l.source==='Walk-in' && l.createdAt.slice(0,10)===today).length;
+  return LEADS.filter(l=> l.source==='Walk-in' && l.createdAt.slice(0,10)===today);
 }
+function walkinsAddedTodayCount(targetDate){ return walkinsAddedTodayLeads(targetDate).length; }
 // 2) Cross-sell: a lead that ALREADY had at least one referral gets ANOTHER
 //    (different department) referral today — this is the "referred between
 //    salesmen" / cross-selling count, not a first-time referral.
-function crossSellReferralsTodayCount(targetDate){
+function crossSellReferralsTodayLeads(targetDate){
   const today = targetDate || todayStr();
-  let n = 0;
+  const out = [];
   LEADS.forEach(l=>{
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
-    sorted.forEach((a,i)=>{
-      if(a.assignedAt.slice(0,10)===today && i>0) n++;
-    });
+    if(sorted.some((a,i)=> a.assignedAt.slice(0,10)===today && i>0)) out.push(l);
   });
-  return n;
+  return out;
 }
+function crossSellReferralsTodayCount(targetDate){ return crossSellReferralsTodayLeads(targetDate).length; }
 // 3) Any lead getting its first-ever referral today, with rules that differ by
 //    source: Digital Ad and Physical Marketing always count here, even if added
 //    the very same day. Walk-in and Reference only count here if the referral
@@ -3915,18 +3931,19 @@ function crossSellReferralsTodayCount(targetDate){
 //    referral is already captured under Walk-ins Today instead, and a same-day
 //    Reference referral simply isn't counted anywhere (by design, mirroring
 //    Walk-in's same-day exclusion).
-function oldLeadsReferredTodayCount(targetDate){
+function oldLeadsReferredTodayLeads(targetDate){
   const today = targetDate || todayStr();
-  let n = 0;
+  const out = [];
   LEADS.forEach(l=>{
     const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
     if(!sorted.length || sorted[0].assignedAt.slice(0,10)!==today) return; // must be first-referred today
     const addedToday = l.createdAt.slice(0,10)===today;
     if((l.source==='Walk-in' || l.source==='Reference') && addedToday) return;
-    n++;
+    out.push(l);
   });
-  return n;
+  return out;
 }
+function oldLeadsReferredTodayCount(targetDate){ return oldLeadsReferredTodayLeads(targetDate).length; }
 // 4) An old lead (not added today) getting an actual status update today —
 //    Visited, Sale Done, Lost, Partial Sale, or a follow-up call logged — on an
 //    assignment that already existed before today. This is deliberately
@@ -3934,9 +3951,9 @@ function oldLeadsReferredTodayCount(targetDate){
 //    cross-sell) is a different kind of event, already covered by the two
 //    counts above — this one is specifically "something happened on an
 //    assignment someone already had."
-function oldLeadsUpdatedTodayCount(targetDate){
+function oldLeadsUpdatedTodayLeads(targetDate){
   const today = targetDate || todayStr();
-  let n = 0;
+  const out = [];
   LEADS.forEach(l=>{
     let counted = false;
     (l.assignments||[]).forEach(a=>{
@@ -3949,10 +3966,11 @@ function oldLeadsUpdatedTodayCount(targetDate){
         counted = true;
       });
     });
-    if(counted) n++;
+    if(counted) out.push(l);
   });
-  return n;
+  return out;
 }
+function oldLeadsUpdatedTodayCount(targetDate){ return oldLeadsUpdatedTodayLeads(targetDate).length; }
 // Calls that are DUE today (a nextFollowUp of today) but haven't actually been
 // made/logged yet today — different from the 'logged today' entries above. This
 // is what lets Head see "who was supposed to be called today but hasn't been."
@@ -4165,12 +4183,18 @@ function renderCustomFollowupResults(followupGroups, filterVal){
 function viewCustomDateReport(){
   const targetDate = getCustomReportDate();
   const groups = groupTodayActivityByLead(targetDate);
-  const visitGroups = groups
+  let visitGroups = groups
     .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
       ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
       !(e.status==='lost' && e.team==='Reception')
     )}))
     .filter(g=>g.entries.length);
+
+  if(CUSTOM_STAT_FILTER){
+    const matchIds = new Set(statFilterLeads(CUSTOM_STAT_FILTER, targetDate).map(l=>l.id));
+    visitGroups = visitGroups.filter(g=> matchIds.has(g.lead.id));
+  }
+
   const followupGroups = buildFollowupForDateGroups(targetDate);
 
   return `
@@ -4178,13 +4202,14 @@ function viewCustomDateReport(){
   <input type="date" id="customReportDateInput" value="${targetDate}" max="${todayStr()}" style="margin-bottom:18px;">
 
   <div class="section-title">Activity on ${fmtDate(targetDate)}</div>
-  <div class="stat-grid" style="margin-bottom:14px;">
-    <div class="stat"><div class="n">${walkinsAddedTodayCount(targetDate)}</div><div class="l">Walk-ins</div></div>
-    <div class="stat"><div class="n">${crossSellReferralsTodayCount(targetDate)}</div><div class="l">Cross-sell Referrals</div></div>
-    <div class="stat"><div class="n">${oldLeadsReferredTodayCount(targetDate)}</div><div class="l">Old Leads Referred</div></div>
-    <div class="stat"><div class="n">${oldLeadsUpdatedTodayCount(targetDate)}</div><div class="l">Old Leads Updated</div></div>
+  <div class="stat-grid" style="margin-bottom:14px;" id="customStatGrid">
+    ${statBox(walkinsAddedTodayCount(targetDate), 'Walk-ins', 'walkins', CUSTOM_STAT_FILTER)}
+    ${statBox(crossSellReferralsTodayCount(targetDate), 'Cross-sell Referrals', 'crosssell', CUSTOM_STAT_FILTER)}
+    ${statBox(oldLeadsReferredTodayCount(targetDate), 'Old Leads Referred', 'oldreferred', CUSTOM_STAT_FILTER)}
+    ${statBox(oldLeadsUpdatedTodayCount(targetDate), 'Old Leads Updated', 'oldupdated', CUSTOM_STAT_FILTER)}
   </div>
-  ${visitGroups.length===0 ? `<div class="empty">No activity logged on this date.</div>` :
+  ${CUSTOM_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[CUSTOM_STAT_FILTER]}</b> — <a href="#" id="clearCustomStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
+  ${visitGroups.length===0 ? `<div class="empty">${CUSTOM_STAT_FILTER ? 'Nothing matches this filter.' : 'No activity logged on this date.'}</div>` :
     visitGroups.map(g=>`
       <div class="card">
         <div class="lead-name">${esc(g.lead.name)}</div>
@@ -4215,12 +4240,17 @@ function viewReports(){
   const today = todayStr();
   const groups = groupTodayActivityByLead();
 
-  const visitGroups = groups
+  let visitGroups = groups
     .map(g=>({lead:g.lead, entries:g.entries.filter(e=>
       ['visited','sale','new visit','lost','partial_sale','pending'].includes(e.status) &&
       !(e.status==='lost' && e.team==='Reception') // Reception's own "Not Interested / Loose Lead" — not shown here, sales-team Lost still is
     )}))
     .filter(g=>g.entries.length);
+
+  if(DAILY_STAT_FILTER){
+    const matchIds = new Set(statFilterLeads(DAILY_STAT_FILTER, today).map(l=>l.id));
+    visitGroups = visitGroups.filter(g=> matchIds.has(g.lead.id));
+  }
 
   const followupGroups = buildFollowupTodayGroups();
 
@@ -4229,13 +4259,14 @@ function viewReports(){
   return `
   <button class="btn btn-ghost btn-sm" id="exportCsvBtn" style="margin-bottom:12px;">⬇ Export All Leads (CSV backup)</button>
   <div class="section-title">Today's Visits (${fmtDate(today)})</div>
-  <div class="stat-grid" style="margin-bottom:14px;">
-    <div class="stat"><div class="n">${walkinsAddedTodayCount()}</div><div class="l">Walk-ins Today</div></div>
-    <div class="stat"><div class="n">${crossSellReferralsTodayCount()}</div><div class="l">Cross-sell Referrals</div></div>
-    <div class="stat"><div class="n">${oldLeadsReferredTodayCount()}</div><div class="l">Old Leads Referred</div></div>
-    <div class="stat"><div class="n">${oldLeadsUpdatedTodayCount()}</div><div class="l">Old Leads Updated</div></div>
+  <div class="stat-grid" style="margin-bottom:14px;" id="dailyStatGrid">
+    ${statBox(walkinsAddedTodayCount(), 'Walk-ins Today', 'walkins', DAILY_STAT_FILTER)}
+    ${statBox(crossSellReferralsTodayCount(), 'Cross-sell Referrals', 'crosssell', DAILY_STAT_FILTER)}
+    ${statBox(oldLeadsReferredTodayCount(), 'Old Leads Referred', 'oldreferred', DAILY_STAT_FILTER)}
+    ${statBox(oldLeadsUpdatedTodayCount(), 'Old Leads Updated', 'oldupdated', DAILY_STAT_FILTER)}
   </div>
-  ${visitGroups.length===0 ? `<div class="empty">No visits logged yet today.</div>` :
+  ${DAILY_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[DAILY_STAT_FILTER]}</b> — <a href="#" id="clearDailyStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
+  ${visitGroups.length===0 ? `<div class="empty">${DAILY_STAT_FILTER ? 'Nothing matches this filter.' : 'No visits logged yet today.'}</div>` :
     visitGroups.map(g=>`
       <div class="card">
         <div class="lead-name">${esc(g.lead.name)}</div>
@@ -4707,9 +4738,30 @@ function bindDynamicHandlers(){
     customReportDateInput.addEventListener('change', ()=>{
       if(!customReportDateInput.value) return;
       CUSTOM_REPORT_DATE = customReportDateInput.value;
+      CUSTOM_STAT_FILTER = null;
       renderApp();
     });
   }
+
+  document.querySelectorAll('#dailyStatGrid .statClickable').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const key = el.dataset.statKey;
+      DAILY_STAT_FILTER = DAILY_STAT_FILTER===key ? null : key;
+      renderApp();
+    });
+  });
+  const clearDailyStatFilter = document.getElementById('clearDailyStatFilter');
+  if(clearDailyStatFilter) clearDailyStatFilter.addEventListener('click', (ev)=>{ ev.preventDefault(); DAILY_STAT_FILTER = null; renderApp(); });
+
+  document.querySelectorAll('#customStatGrid .statClickable').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const key = el.dataset.statKey;
+      CUSTOM_STAT_FILTER = CUSTOM_STAT_FILTER===key ? null : key;
+      renderApp();
+    });
+  });
+  const clearCustomStatFilter = document.getElementById('clearCustomStatFilter');
+  if(clearCustomStatFilter) clearCustomStatFilter.addEventListener('click', (ev)=>{ ev.preventDefault(); CUSTOM_STAT_FILTER = null; renderApp(); });
 
   const customFollowupDeptFilter = document.getElementById('customFollowupDeptFilter');
   const customFollowupPersonWrap = document.getElementById('customFollowupPersonWrap');

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260826050820';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260826082403';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1516,7 +1516,7 @@ function tabsFor(role){
     {id:'analytics', label:'Analytics',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
-      sub:[{id:'all', label:'All Leads'}, {id:'activeleads', label:'Active Leads'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
+      sub:[{id:'all', label:'All Leads'}, {id:'activeleads', label:'Active Leads'}, {id:'duetoday', label:'Due Today'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>myConnectionsDueTodayCount(),
       sub:[{id:'add', label:'Add Connection'}, {id:'my', label:'My Connections'}, {id:'all', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
     {id:'reports', label:'Reports',
@@ -1611,6 +1611,7 @@ async function renderApp(){
     else if(ACTIVE_TAB==='leads'){
       if(ACTIVE_SUBTAB==='crosssell') area.innerHTML = viewCrossSell();
       else if(ACTIVE_SUBTAB==='activeleads') area.innerHTML = viewHeadActiveLeads();
+      else if(ACTIVE_SUBTAB==='duetoday') area.innerHTML = viewHeadDueToday();
       else if(ACTIVE_SUBTAB==='upcoming') area.innerHTML = viewLeadsUpcomingFollowup();
       else if(ACTIVE_SUBTAB==='add') area.innerHTML = viewAddLead();
       else area.innerHTML = viewAllLeads(true);
@@ -1830,6 +1831,49 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
   if(sourceFilter==='Physical Marketing' && marketingFilter) list = list.filter(l=> l.marketingPersonName===marketingFilter);
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
+}
+// Everything due today for a specific person or Reception — same pick-a-person
+// filter as Active Leads, but showing what actually needs a call today instead
+// of everything currently open. "Due" means: a follow-up scheduled for today,
+// OR something referred that's just been sitting there with no plan at all
+// (still Pending Visit untouched, or Visited with nothing scheduled next).
+function renderHeadDueTodayResults(filterVal){
+  if(!filterVal) return `<div class="empty">Select a filter above to see what's due today.</div>`;
+  const today = todayStr();
+  let list;
+  if(filterVal==='reception'){
+    list = LEADS.filter(l=>{
+      if(l.receptionLog && l.receptionLog.length){
+        const last = l.receptionLog[l.receptionLog.length-1];
+        return last.status==='followup' && isDueToday(last.nextFollowUp);
+      }
+      return !leadHasAssignments(l) && !receptionMarkedLost(l);
+    });
+  } else if(filterVal.startsWith('sales:')){
+    const parts = filterVal.split(':');
+    const team = parts[1], name = parts[2];
+    list = LEADS.filter(l=> (l.assignments||[]).some(a=>
+      a.team===team && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' &&
+      ((a.nextFollowUp && isDueToday(a.nextFollowUp)) || !assignmentHasPlan(a))
+    ));
+  } else {
+    list = [];
+  }
+  if(!list.length) return `<div class="empty">Nothing due today for this filter.</div>`;
+  return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
+}
+function viewHeadDueToday(){
+  return `
+  <select id="dueTodayDeptFilter" style="margin-bottom:10px;">
+    <option value="">— Please select —</option>
+    <option value="reception">Reception</option>
+    ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+  </select>
+  <div id="dueTodayPersonWrap" class="hidden">
+    <select id="dueTodayPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="dueTodayResults">${renderHeadDueTodayResults('')}</div>
+  `;
 }
 function viewHeadActiveLeads(){
   return `
@@ -5121,6 +5165,37 @@ function bindDynamicHandlers(){
       refreshActiveLeads();
     });
     activeLeadsMarketingFilter.addEventListener('change', refreshActiveLeads);
+  }
+
+  const dueTodayDeptFilter = document.getElementById('dueTodayDeptFilter');
+  const dueTodayPersonWrap = document.getElementById('dueTodayPersonWrap');
+  const dueTodayPersonFilter = document.getElementById('dueTodayPersonFilter');
+  if(dueTodayDeptFilter){
+    function refreshHeadDueToday(){
+      const dept = dueTodayDeptFilter.value;
+      let filterVal = '';
+      if(dept==='reception') filterVal = 'reception';
+      else if(dept){
+        filterVal = dueTodayPersonFilter.value ? `sales:${dept}:${dueTodayPersonFilter.value}` : `sales:${dept}`;
+      }
+      document.getElementById('dueTodayResults').innerHTML = renderHeadDueTodayResults(filterVal);
+      document.querySelectorAll('[data-open-lead]').forEach(el=>{
+        el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
+      });
+      bindDeleteLeadCardButtons();
+    }
+    dueTodayDeptFilter.addEventListener('change', ()=>{
+      const dept = dueTodayDeptFilter.value;
+      const isRealTeam = dept && dept!=='reception';
+      dueTodayPersonWrap.classList.toggle('hidden', !isRealTeam);
+      if(isRealTeam){
+        const people = STAFF[dept]||[];
+        dueTodayPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
+          people.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+      }
+      refreshHeadDueToday();
+    });
+    dueTodayPersonFilter.addEventListener('change', refreshHeadDueToday);
   }
 
   const followupDeptFilter = document.getElementById('followupDeptFilter');

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260825173111';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260826050820';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -418,12 +418,43 @@ async function saveConnections(list){
   }catch(e){ console.error('save connections failed', e); toast('Could not save — check your connection.'); return false; }
 }
 
+// ============================================================================
+// MIGRATION NOTE: leads are moving from one shared document (shbv_kv/leads-data,
+// a JSON blob holding every lead) to individual documents — one per lead,
+// stored as shbv_kv/lead_v2_<leadId> — so that editing one lead never touches
+// or contends with any other lead's document. This is the real fix for saves
+// occasionally colliding / screens refreshing unexpectedly when several people
+// save around the same time.
+//
+// Until a Head explicitly runs the one-time migration (Manage Logins > Migrate
+// to New Storage), the app transparently keeps using the OLD format — nothing
+// changes in how the app behaves. The moment migration runs, every lead gets
+// copied into the new format, and the app switches over to reading/writing
+// that from then on. The old leads-data document is never deleted — it simply
+// stops being written to, which makes it an automatic, zero-effort backup.
+// ============================================================================
+const LEADS_V2_PREFIX = 'lead_v2_';
+let USING_LEADS_V2 = false; // set once we know which format is actually in use
+function leadsV2Query(){
+  return db.collection('shbv_kv')
+    .where(firebase.firestore.FieldPath.documentId(), '>=', LEADS_V2_PREFIX)
+    .where(firebase.firestore.FieldPath.documentId(), '<', LEADS_V2_PREFIX + '\uf8ff');
+}
 async function loadLeads(){
   try{
     let raw;
     if(USE_FIREBASE){
-      const doc = await db.collection('shbv_kv').doc('leads-data').get();
-      raw = doc.exists ? JSON.parse(doc.data().value) : [];
+      const v2snap = await leadsV2Query().get();
+      if(!v2snap.empty){
+        USING_LEADS_V2 = true;
+        raw = v2snap.docs.map(d=>d.data());
+      } else {
+        // Migration hasn't run yet (or produced zero leads, which only happens
+        // on a genuinely empty database) — read the old format unchanged.
+        USING_LEADS_V2 = false;
+        const doc = await db.collection('shbv_kv').doc('leads-data').get();
+        raw = doc.exists ? JSON.parse(doc.data().value) : [];
+      }
     } else {
       const r = await window.storage.get('leads-data', true);
       raw = r ? JSON.parse(r.value) : [];
@@ -433,17 +464,40 @@ async function loadLeads(){
 }
 // A deep-copy snapshot of LEADS taken at the last point this client was known
 // to be in sync with the server (initial load, or an applied remote update).
-// This is what saveLeads compares against to figure out "what did THIS client
-// actually change" — comparing against it (not against the live LEADS array,
-// which callers mutate in place before saving) is what makes the merge below
-// actually work.
+// Used by the new-format save path to figure out exactly which individual
+// leads THIS client actually added, edited, or deleted.
 let LEADS_SYNCED_SNAPSHOT = [];
 function updateLeadsSyncedSnapshot(){ LEADS_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(LEADS)); }
 async function saveLeads(leads){
   const baseline = LEADS_SYNCED_SNAPSHOT;
   LEADS = leads;
   try{
-    if(USE_FIREBASE){
+    if(USE_FIREBASE && USING_LEADS_V2){
+      // New format: write only the specific lead documents that actually
+      // changed — no fetch-and-merge needed, since unrelated leads live in
+      // completely independent documents and can never collide.
+      const baselineById = new Map(baseline.map(l=>[l.id, l]));
+      const currentIds = new Set(leads.map(l=>l.id));
+      const batch = db.batch();
+      let writeCount = 0;
+      leads.forEach(l=>{
+        const was = baselineById.get(l.id);
+        if(!was || JSON.stringify(was)!==JSON.stringify(l)){
+          batch.set(db.collection('shbv_kv').doc(LEADS_V2_PREFIX + l.id), l);
+          writeCount++;
+        }
+      });
+      baseline.forEach(l=>{
+        if(!currentIds.has(l.id)){
+          batch.delete(db.collection('shbv_kv').doc(LEADS_V2_PREFIX + l.id));
+          writeCount++;
+        }
+      });
+      if(writeCount>0) await batch.commit();
+      updateLeadsSyncedSnapshot();
+    } else if(USE_FIREBASE){
+      // Old format — unchanged from before migration runs, so nothing about
+      // today's behavior changes until that explicit step happens.
       const freshDoc = await db.collection('shbv_kv').doc('leads-data').get();
       const freshLeads = freshDoc.exists ? JSON.parse(freshDoc.data().value).map(normalizeLead) : [];
       const localVersionOf = new Map(leads.map(l=>[l.id, l]));
@@ -454,21 +508,12 @@ async function saveLeads(leads){
       freshLeads.forEach(freshLead=>{
         seenIds.add(freshLead.id);
         const wasAtSync = baselineVersionOf.get(freshLead.id);
-        // This lead existed the last time this client synced, but isn't in its
-        // current array anymore — that means THIS client just deleted it.
-        // Without this check, the merge below would silently resurrect it from
-        // the fresh server copy, since a missing ID looked identical to "not
-        // touched by this client" — which is exactly why Delete looked stuck.
         if(wasAtSync && !localIds.has(freshLead.id)) return;
         const localVersion = localVersionOf.get(freshLead.id);
-        // Only take this client's version if it genuinely differs from the last
-        // synced baseline — i.e. this client actually edited this lead since
-        // then. Otherwise defer to the fresh server copy, which may include a
-        // concurrent change from someone else that this client hasn't seen yet.
         if(localVersion && JSON.stringify(localVersion)!==JSON.stringify(wasAtSync)) { merged.push(localVersion); return; }
         merged.push(freshLead);
       });
-      leads.forEach(l=>{ if(!seenIds.has(l.id)) merged.push(l); }); // brand new leads this client added
+      leads.forEach(l=>{ if(!seenIds.has(l.id)) merged.push(l); });
       LEADS = merged;
       await db.collection('shbv_kv').doc('leads-data').set({value: JSON.stringify(merged), updatedAt:new Date().toISOString()});
       updateLeadsSyncedSnapshot();
@@ -629,24 +674,42 @@ document.addEventListener('focusout', ()=>{
     }
   }, 200);
 });
+let LEADS_UNSUB = null;
+let STAFF_LISTENER_ACTIVE = false;
 function subscribeToLiveUpdates(){
   if(!USE_FIREBASE) return;
-  db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
-    const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
-    LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
-    updateLeadsSyncedSnapshot();
-    if(previousIds) notifyNewReferrals(previousIds);
-    else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
-    if(SESSION && !isUserMidEdit()) renderApp();
-    else if(SESSION) PENDING_LIVE_RENDER = true;
-  });
-  db.collection('shbv_kv').doc('staff-data').onSnapshot(doc=>{
-    STAFF = normalizeStaffObj(doc.exists ? JSON.parse(doc.data().value) : null);
-    updateStaffSyncedSnapshot();
-    if(isUserMidEdit()){ if(SESSION) PENDING_LIVE_RENDER = true; return; }
-    if(SESSION) renderApp();
-    else if(pendingRole) renderNameCardBody();
-  });
+  if(LEADS_UNSUB) LEADS_UNSUB();
+  if(USING_LEADS_V2){
+    LEADS_UNSUB = leadsV2Query().onSnapshot(snapshot=>{
+      const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
+      LEADS = snapshot.docs.map(d=>normalizeLead(d.data()));
+      updateLeadsSyncedSnapshot();
+      if(previousIds) notifyNewReferrals(previousIds);
+      else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
+      if(SESSION && !isUserMidEdit()) renderApp();
+      else if(SESSION) PENDING_LIVE_RENDER = true;
+    });
+  } else {
+    LEADS_UNSUB = db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
+      const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
+      LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
+      updateLeadsSyncedSnapshot();
+      if(previousIds) notifyNewReferrals(previousIds);
+      else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
+      if(SESSION && !isUserMidEdit()) renderApp();
+      else if(SESSION) PENDING_LIVE_RENDER = true;
+    });
+  }
+  if(!STAFF_LISTENER_ACTIVE){
+    STAFF_LISTENER_ACTIVE = true;
+    db.collection('shbv_kv').doc('staff-data').onSnapshot(doc=>{
+      STAFF = normalizeStaffObj(doc.exists ? JSON.parse(doc.data().value) : null);
+      updateStaffSyncedSnapshot();
+      if(isUserMidEdit()){ if(SESSION) PENDING_LIVE_RENDER = true; return; }
+      if(SESSION) renderApp();
+      else if(pendingRole) renderNameCardBody();
+    });
+  }
 }
 // Backfills any fields missing on older saved leads/assignments/logs so future
 // feature additions never break on data saved before that feature existed.
@@ -3078,6 +3141,23 @@ function lastLoginText(p){
 function viewManageLogins(){
   const depts = ['reception','tiles','sanitary','kitchen','windows'];
   return `
+  <div class="card" style="border-color:${USING_LEADS_V2 ? 'var(--ok)' : 'var(--bad)'};">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">${USING_LEADS_V2 ? '✓ Running on New Storage' : '⚠️ Migrate to New Storage'}</h3>
+    ${USING_LEADS_V2 ? `
+      <div class="lead-meta">This app is now using the new per-lead storage format. Each lead lives in its own document, so saves from different people never collide anymore. The old data is still sitting untouched underneath as a backup, in case it's ever needed.</div>
+    ` : `
+      <div class="lead-meta" style="margin-bottom:10px;">
+        A one-time, one-way step: copies every lead into a new storage format where each lead is its own independent document, instead of all leads sharing one document. This is what actually fixes saves occasionally colliding when multiple people save around the same time.
+        <br><br>
+        <b>Before running this:</b> make sure everyone's finished with whatever they're doing — this takes a few seconds but it's best done at a quiet moment, not mid-shift.
+        <br><br>
+        The old data is never deleted — it's left completely untouched as an automatic backup. This is safe to click even if you're not 100% sure; nothing is destructive.
+      </div>
+      <button class="btn btn-brass btn-full" id="migrateToV2Btn">Migrate to New Storage Now</button>
+      <div id="migrateV2Status" class="lead-meta" style="margin-top:8px;"></div>
+    `}
+  </div>
+
   <div class="card" style="border-color:var(--brass);">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Existing Feedback Call Dates</h3>
     <div class="lead-meta" style="margin-bottom:10px;">
@@ -3213,6 +3293,67 @@ function correctExistingFeedbackCallDates(){
   return {updated, removed};
 }
 function bindManageLoginsHandlers(){
+  const migrateToV2Btn = document.getElementById('migrateToV2Btn');
+  if(migrateToV2Btn){
+    migrateToV2Btn.addEventListener('click', async ()=>{
+      const statusEl = document.getElementById('migrateV2Status');
+      if(!confirm('Migrate every lead to the new storage format now? The old data stays completely untouched as a backup — this only adds new documents, nothing gets deleted.')) return;
+      migrateToV2Btn.disabled = true;
+      statusEl.textContent = 'Reading current leads...';
+      let oldLeads;
+      try{
+        const oldDoc = await db.collection('shbv_kv').doc('leads-data').get();
+        oldLeads = oldDoc.exists ? JSON.parse(oldDoc.data().value) : [];
+      }catch(e){
+        console.error('Migration read step failed', e);
+        statusEl.textContent = `Failed while reading current data — ${e.code||''} ${e.message||e}`;
+        migrateToV2Btn.disabled = false;
+        return;
+      }
+      if(!oldLeads.length){
+        statusEl.textContent = 'No leads found to migrate — nothing to do.';
+        migrateToV2Btn.disabled = false;
+        return;
+      }
+      statusEl.textContent = `Read ${oldLeads.length} leads. Writing into new storage...`;
+      try{
+        const CHUNK = 450; // Firestore batch write limit is 500 operations
+        for(let i=0; i<oldLeads.length; i+=CHUNK){
+          const chunk = oldLeads.slice(i, i+CHUNK);
+          const batch = db.batch();
+          chunk.forEach(l=> batch.set(db.collection('shbv_kv').doc(LEADS_V2_PREFIX + l.id), l));
+          await batch.commit();
+          statusEl.textContent = `Writing into new storage... ${Math.min(i+CHUNK, oldLeads.length)}/${oldLeads.length}`;
+        }
+      }catch(e){
+        console.error('Migration write step failed', e);
+        statusEl.textContent = `Read ${oldLeads.length} leads OK, but FAILED while writing into new storage — ${e.code||''} ${e.message||e}. Nothing was deleted, safe to try again.`;
+        migrateToV2Btn.disabled = false;
+        return;
+      }
+      // Verify: re-read what we just wrote and confirm the count matches exactly
+      // before switching the app over — never flip to the new format on faith.
+      statusEl.textContent = 'Verifying...';
+      try{
+        const verifySnap = await leadsV2Query().get();
+        if(verifySnap.size !== oldLeads.length){
+          statusEl.textContent = `⚠️ Wrote ${oldLeads.length} but only found ${verifySnap.size} on verification — NOT switching over. Nothing was deleted from the old data. Tell your admin.`;
+          migrateToV2Btn.disabled = false;
+          return;
+        }
+      }catch(e){
+        statusEl.textContent = `Wrote the data but verification failed — ${e.code||''} ${e.message||e}. Not switching over yet, safe to try again.`;
+        migrateToV2Btn.disabled = false;
+        return;
+      }
+      USING_LEADS_V2 = true;
+      updateLeadsSyncedSnapshot();
+      subscribeToLiveUpdates();
+      statusEl.textContent = `✓ Done — ${oldLeads.length} leads verified and migrated. Now running on the new storage format.`;
+      toast(`Migration complete — ${oldLeads.length} leads`);
+      renderApp();
+    });
+  }
   const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');
   if(fixFeedbackDatesBtn){
     fixFeedbackDatesBtn.addEventListener('click', async ()=>{

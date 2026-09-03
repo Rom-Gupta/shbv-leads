@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260829115510';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260903070311';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1229,7 +1229,7 @@ function isHelping(team, salesperson){
   return myHelpingList().some(h=>h.team===team && h.salesperson===salesperson);
 }
 function isMyAssignment(a){
-  if(SESSION.isAssistant) return isHelping(a.team, a.salesperson);
+  if(SESSION.isAssistant) return isHelping(a.team, a.salesperson) || (a.team===SESSION.role && a.salesperson===SESSION.name);
   return a.team===SESSION.role && a.salesperson===SESSION.name;
 }
 // Leads Reception has handed to this assistant, not yet routed to a real salesperson.
@@ -1241,7 +1241,7 @@ function assistantRoutingQueue(){
 function assistantAllAssignments(){
   const out = [];
   LEADS.forEach(l=> (l.assignments||[]).forEach(a=>{
-    if(isHelping(a.team, a.salesperson)) out.push({lead:l, a});
+    if(isHelping(a.team, a.salesperson) || (a.team===SESSION.role && a.salesperson===SESSION.name)) out.push({lead:l, a});
   }));
   return out;
 }
@@ -4913,7 +4913,7 @@ function openReferForm(leadId, fromAssignId, presetTeam){
   const teamSel = document.getElementById('referTeamSel');
   const personSel = document.getElementById('referPersonSel');
   function refreshPersonOptions(){
-    const list = STAFF[teamSel.value]||[];
+    const list = (STAFF[teamSel.value]||[]).filter(p=>!p.isAssistant);
     personSel.innerHTML = list.length ? list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('') : `<option value="">— no login for this team yet, ask a Head —</option>`;
   }
   refreshPersonOptions();

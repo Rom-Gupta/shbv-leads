@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260903070311';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260904061347';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -744,6 +744,7 @@ function normalizeLead(l){
   if(!l.assignments) l.assignments = [];
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
   if(l.pendingAssistantRouting===undefined) l.pendingAssistantRouting = null;
+  if(l.attentionDismissedAt===undefined) l.attentionDismissedAt = null;
   if(l.state===undefined) l.state = '';
   if(l.city===undefined) l.city = '';
   if(l.referenceName===undefined) l.referenceName = '';
@@ -2402,13 +2403,26 @@ function headDueTodayCount(){
 // customer is physically standing there or already left, so this is urgent.
 function neglectedWalkins(){
   const cutoff = Date.now() - 24*3600*1000;
-  return LEADS.filter(l=> l.source==='Walk-in' && !leadHasAssignments(l) && !receptionMarkedLost(l) && new Date(l.createdAt).getTime() < cutoff);
+  return LEADS.filter(l=>{
+    if(l.source!=='Walk-in' || leadHasAssignments(l) || receptionMarkedLost(l)) return false;
+    // Ignoring resets the clock from the moment it's dismissed, same as
+    // Stale Leads — not a permanent silence, so it correctly flags again if
+    // it's still sitting untouched 24 more hours later.
+    const effectiveTime = (l.attentionDismissedAt && new Date(l.attentionDismissedAt).getTime() > new Date(l.createdAt).getTime())
+      ? l.attentionDismissedAt : l.createdAt;
+    return new Date(effectiveTime).getTime() < cutoff;
+  });
 }
 // A Physical Marketing lead (banner/flyer/etc.) that's sat 30+ days without being
 // referred — these trickle in slower, so the bar for "neglected" is longer.
 function neglectedMarketingLeads(){
   const cutoff = Date.now() - 30*24*3600*1000;
-  return LEADS.filter(l=> l.source==='Physical Marketing' && !leadHasAssignments(l) && !receptionMarkedLost(l) && new Date(l.createdAt).getTime() < cutoff);
+  return LEADS.filter(l=>{
+    if(l.source!=='Physical Marketing' || leadHasAssignments(l) || receptionMarkedLost(l)) return false;
+    const effectiveTime = (l.attentionDismissedAt && new Date(l.attentionDismissedAt).getTime() > new Date(l.createdAt).getTime())
+      ? l.attentionDismissedAt : l.createdAt;
+    return new Date(effectiveTime).getTime() < cutoff;
+  });
 }
 function viewHeadOverview(){
   const total = LEADS.length;
@@ -2441,11 +2455,11 @@ function viewHeadOverview(){
     let html = '';
     if(walkins.length){
       html += `<div class="lead-meta" style="margin-bottom:6px;">Walk-in, not referred to any team, no update within 24 hours:</div>`;
-      html += walkins.map(l=>leadCardHead(l)).join('');
+      html += walkins.map(l=>neglectedLeadCard(l)).join('');
     }
     if(marketing.length){
       html += `<div class="lead-meta" style="margin:${walkins.length?'14px':'0'} 0 6px;">Physical Marketing, not referred to any team within 1 month:</div>`;
-      html += marketing.map(l=>leadCardHead(l)).join('');
+      html += marketing.map(l=>neglectedLeadCard(l)).join('');
     }
     return html;
   })()}
@@ -4075,6 +4089,25 @@ function leadCardHead(l){
     </div>
   </div>`;
 }
+// Same as leadCardHead, but with an Ignore button — used specifically for
+// Needs Attention Today. Ignoring resets the clock (same snooze pattern as
+// Stale Leads), not a permanent silence — it flags again if still untouched.
+function neglectedLeadCard(l){
+  return `
+  <div class="card">
+    <div class="card-row">
+      <div>
+        <div class="lead-name">${esc(l.name)}</div>
+        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
+      </div>
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full History</button>
+      <button class="btn btn-ghost btn-sm ignoreAttentionBtn" data-lead-id="${l.id}">Ignore</button>
+    </div>
+  </div>`;
+}
 
 /* ---------------- Head: Daily reports ---------------- */
 function leadsToCSV(){
@@ -5062,6 +5095,17 @@ function bindDynamicHandlers(){
     });
     customFollowupPersonFilter.addEventListener('change', refreshCustomFollowup);
   }
+
+  document.querySelectorAll('.ignoreAttentionBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const targetLead = LEADS.find(l=>l.id===btn.dataset.leadId);
+      if(!targetLead) return;
+      targetLead.attentionDismissedAt = new Date().toISOString();
+      await saveLeads(LEADS);
+      toast('Dismissed — will flag again if it\'s still sitting untouched');
+      renderApp();
+    });
+  });
 
   const staleLeadsDeptFilter = document.getElementById('staleLeadsDeptFilter');
   const staleLeadsPersonWrap = document.getElementById('staleLeadsPersonWrap');

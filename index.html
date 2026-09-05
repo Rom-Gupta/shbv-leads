@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260905111029';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260905131415';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4188,10 +4188,22 @@ function leadCurrentlyNeedsFollowup(l){
 // Three distinct counts for Today's Visits, each measuring a different kind of
 // activity so they don't overlap:
 // 1) A brand-new walk-in customer, added today, by anyone (reception or a
-//    salesperson directly).
+//    salesperson directly). A Reference lead counts here too, but only when
+//    it's added AND first-referred on the same day — same treatment as
+//    Walk-in. If a Reference lead is added today but not referred until a
+//    later day instead, it doesn't count here — it counts under Old Leads
+//    Referred once that later referral actually happens, unchanged.
 function walkinsAddedTodayLeads(targetDate){
   const today = targetDate || todayStr();
-  return LEADS.filter(l=> l.source==='Walk-in' && l.createdAt.slice(0,10)===today);
+  return LEADS.filter(l=>{
+    if(l.createdAt.slice(0,10)!==today) return false;
+    if(l.source==='Walk-in') return true;
+    if(l.source==='Reference'){
+      const sorted = [...(l.assignments||[])].sort((a,b)=> a.assignedAt.localeCompare(b.assignedAt));
+      return sorted.length>0 && sorted[0].assignedAt.slice(0,10)===today;
+    }
+    return false;
+  });
 }
 function walkinsAddedTodayCount(targetDate){ return walkinsAddedTodayLeads(targetDate).length; }
 // 2) Cross-sell: a lead that ALREADY had at least one referral gets ANOTHER

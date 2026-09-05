@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260904061347';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260905111029';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4227,12 +4227,16 @@ function oldLeadsReferredTodayLeads(targetDate){
   return out;
 }
 function oldLeadsReferredTodayCount(targetDate){ return oldLeadsReferredTodayLeads(targetDate).length; }
-// 4) An old lead (not added today) getting an actual status update today —
-//    Visited, Sale Done, Lost, or Partial Sale — on an assignment that already
-//    existed before today. Deliberately excludes follow-up calls (status
-//    'followup'/'no-followup') and referrals (status 'pending') — those have
-//    their own dedicated sections on the same page, so counting them here too
-//    would just be showing the same activity twice.
+// 4) An old lead (not added today) getting an actual update today — Visited,
+//    Sale Done, Lost, Partial Sale, or even a re-save that explicitly keeps
+//    the status as Pending Visit (common when the whole deal happens over
+//    phone/WhatsApp and the customer never actually visits — work still gets
+//    logged even though the status never changes). Still excludes follow-up
+//    calls (status 'followup'/'no-followup') — those have their own dedicated
+//    section on the same page. The original referral itself is never mistaken
+//    for an update here: since we already skip assignments created today,
+//    any log entry we see is guaranteed to be from a day after the referral,
+//    so a 'pending' entry at this point can only be a genuine later re-save.
 function oldLeadsUpdatedTodayLeads(targetDate){
   const today = targetDate || todayStr();
   const out = [];
@@ -4244,7 +4248,7 @@ function oldLeadsUpdatedTodayLeads(targetDate){
       (a.log||[]).forEach(log=>{
         if(counted) return;
         if(log.timestamp.slice(0,10)!==today) return;
-        if(!['visited','sale','lost','partial_sale'].includes(log.status)) return;
+        if(!['visited','sale','lost','partial_sale','pending'].includes(log.status)) return;
         counted = true;
       });
     });

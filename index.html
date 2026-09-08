@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260905131415';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260908080707';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -682,7 +682,18 @@ function subscribeToLiveUpdates(){
   if(USING_LEADS_V2){
     LEADS_UNSUB = leadsV2Query().onSnapshot(snapshot=>{
       const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
-      LEADS = snapshot.docs.map(d=>normalizeLead(d.data()));
+      // Only swap in a new object for a lead that actually changed — everything
+      // else keeps its exact same object reference. This is the real fix for
+      // saves silently not sticking: without this, opening a lead to edit it
+      // and having ANYONE ELSE save ANY OTHER lead in the meantime would
+      // silently swap out the very object you were typing into, so your save
+      // ended up writing data that was no longer part of what got saved.
+      const existingById = new Map(LEADS.map(l=>[l.id, l]));
+      LEADS = snapshot.docs.map(d=>{
+        const fresh = normalizeLead(d.data());
+        const existing = existingById.get(fresh.id);
+        return (existing && JSON.stringify(existing)===JSON.stringify(fresh)) ? existing : fresh;
+      });
       updateLeadsSyncedSnapshot();
       if(previousIds) notifyNewReferrals(previousIds);
       else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
@@ -692,7 +703,12 @@ function subscribeToLiveUpdates(){
   } else {
     LEADS_UNSUB = db.collection('shbv_kv').doc('leads-data').onSnapshot(doc=>{
       const previousIds = KNOWN_MY_ASSIGNMENT_IDS;
-      LEADS = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
+      const rawLeads = doc.exists ? JSON.parse(doc.data().value).map(normalizeLead) : [];
+      const existingById = new Map(LEADS.map(l=>[l.id, l]));
+      LEADS = rawLeads.map(fresh=>{
+        const existing = existingById.get(fresh.id);
+        return (existing && JSON.stringify(existing)===JSON.stringify(fresh)) ? existing : fresh;
+      });
       updateLeadsSyncedSnapshot();
       if(previousIds) notifyNewReferrals(previousIds);
       else KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260908080707';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260910080132';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -2441,7 +2441,14 @@ function neglectedMarketingLeads(){
   });
 }
 function viewHeadOverview(){
-  const total = LEADS.length;
+  // "Active" means still open — either not yet referred (and not marked lost
+  // by Reception), or referred with at least one assignment still in progress.
+  // A lead where every single assignment already ended in Sale or Lost is
+  // fully closed out and doesn't count here anymore.
+  const activeTotal = LEADS.filter(l=>{
+    if(!leadHasAssignments(l)) return !receptionMarkedLost(l);
+    return l.assignments.some(a=>a.status!=='sale' && a.status!=='lost');
+  }).length;
   const today = LEADS.filter(l=>l.createdAt.slice(0,10)===todayStr()).length;
   const soldCount = LEADS.filter(l=>(l.assignments||[]).some(a=>a.status==='sale')).length;
   const lostCount = LEADS.filter(l=>{
@@ -2458,7 +2465,7 @@ function viewHeadOverview(){
     .filter(x=>x.stale.length);
   return `
   <div class="stat-grid">
-    <div class="stat"><div class="n">${total}</div><div class="l">Total Leads</div></div>
+    <div class="stat"><div class="n">${activeTotal}</div><div class="l">Total Active Leads</div></div>
     <div class="stat"><div class="n">${today}</div><div class="l">Added Today</div></div>
     <div class="stat"><div class="n">${soldCount}</div><div class="l">Sales Done</div></div>
     <div class="stat"><div class="n">${dueAcrossAll}</div><div class="l">Follow-ups Due</div></div>

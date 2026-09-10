@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260910080132';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260910154548';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1893,6 +1893,14 @@ function viewHeadDueToday(){
   `;
 }
 function viewHeadActiveLeads(){
+  // Same fix as All Leads: merge the master marketing-persons list with names
+  // that actually appear on real leads, so removing someone from the master
+  // list never makes their existing leads unfilterable here — only Reception
+  // and Head can even reach this dropdown, but the underlying data gap was
+  // the same either way.
+  const marketingCounts = {};
+  LEADS.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = true; } });
+  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
   return `
   <select id="activeLeadsDeptFilter" style="margin-bottom:10px;">
     <option value="">— Please select —</option>
@@ -1916,7 +1924,7 @@ function viewHeadActiveLeads(){
   <div id="activeLeadsMarketingWrap" class="hidden">
     <select id="activeLeadsMarketingFilter" style="margin-bottom:10px;">
       <option value="">All marketing persons</option>
-      ${(STAFF.marketingPersons||[]).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+      ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
     </select>
   </div>
   <div id="activeLeadsResults">${renderHeadActiveLeadsResults('')}</div>

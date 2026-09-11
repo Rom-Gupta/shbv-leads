@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260911104414';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260911104730';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4934,16 +4934,20 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
         </div>`;
       } else if(isPendingCrossSellCall){
-        // Two real outcomes: actually reached them (logged, done — if
-        // interested, use Refer to (another) Sales Team below), or couldn't
-        // reach them, which keeps this call in the queue with a next date
-        // instead of silently closing it out.
+        // Three real outcomes: actually reached them and it's fully settled
+        // (logged, done — if interested, use Refer to (another) Sales Team
+        // below); reached them but they asked to be called back later; or
+        // couldn't reach them at all. The last two both keep this call in the
+        // queue with a next date instead of silently closing it out — they're
+        // just logged with different wording so the history is clear about
+        // what actually happened on the call.
         html += `
         <div class="assign-block">
           <div class="section-title" style="margin-top:0;">Log Cross-Sell Call</div>
           <label>Outcome</label>
           <select id="crossSellCallOutcome">
             <option value="done">Reached them — logged, done</option>
+            <option value="callback">Reached them — asked to call back later</option>
             <option value="retry">Didn't pick up / no answer — try again later</option>
           </select>
           <div id="crossSellRetryDateWrap" class="hidden">
@@ -6217,13 +6221,14 @@ function bindModalHandlers(lead){
       const outcome = document.getElementById('crossSellCallOutcome').value;
       const remarks = document.getElementById('crossSellCallRemarks').value.trim();
       if(!remarks){ toast('Add a remark'); return; }
-      if(outcome==='retry'){
+      if(outcome==='retry' || outcome==='callback'){
         const nextDate = document.getElementById('crossSellRetryDate').value;
         if(!nextDate){ toast('Choose a next call date'); return; }
         if(!lead.receptionLog) lead.receptionLog=[];
         // kind stays 'cross-sell-auto' so this keeps showing under Walk-in
         // (Cross) — same call, just not resolved yet, exactly like any other
-        // unreachable-customer follow-up.
+        // follow-up. Only the remarks distinguish "no answer" from "asked to
+        // call back later" in the history.
         lead.receptionLog.push({
           timestamp:new Date().toISOString(), author:SESSION.name, remarks,
           status:'followup', nextFollowUp:nextDate, kind:'cross-sell-auto'
@@ -6249,7 +6254,7 @@ function bindModalHandlers(lead){
     const crossSellRetryWrap = document.getElementById('crossSellRetryDateWrap');
     if(crossSellOutcomeSel){
       crossSellOutcomeSel.addEventListener('change', ()=>{
-        crossSellRetryWrap.classList.toggle('hidden', crossSellOutcomeSel.value!=='retry');
+        crossSellRetryWrap.classList.toggle('hidden', crossSellOutcomeSel.value==='done');
       });
     }
   }

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260911110427';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260911110656';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1320,15 +1320,18 @@ function crossSellSlotTeams(slot){
   return slot==='windowsKitchen' ? ['windows','kitchen'] : [slot];
 }
 // Older auto-calls (generated before this field was added) won't have a
-// stored slot — fall back to matching the slot label against the remarks text
-// so No Need still works correctly for those too.
+// stored slot — fall back to matching against the remarks text. The remarks
+// mention TWO departments (the one originally referred to, and the one this
+// specific call is actually about) — anchor precisely on "interested in X"
+// rather than searching the whole sentence, or the original department's
+// name could get matched by mistake instead of the real target.
 function inferCrossSellSlot(entry){
   if(entry.slot) return entry.slot;
   if(!entry.remarks) return null;
-  for(const slot of ['sanitary','tiles','windowsKitchen']){
-    if(entry.remarks.includes(crossSellSlotLabel(slot))) return slot;
-  }
-  return null;
+  const match = entry.remarks.match(/interested in (Sanitary|Tiles|Windows & Kitchen\/Wardrobe)/);
+  if(!match) return null;
+  if(match[1]==='Windows & Kitchen/Wardrobe') return 'windowsKitchen';
+  return match[1].toLowerCase();
 }
 // Works out, for a lead that's been referred at least once, which of the
 // three slots (sanitary / tiles / windowsKitchen) still need a call, and

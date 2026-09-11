@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260910154548';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260911102132';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -761,6 +761,7 @@ function normalizeLead(l){
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
   if(l.pendingAssistantRouting===undefined) l.pendingAssistantRouting = null;
   if(l.attentionDismissedAt===undefined) l.attentionDismissedAt = null;
+  if(l.crossSellAutoCalled===undefined) l.crossSellAutoCalled = [];
   if(l.state===undefined) l.state = '';
   if(l.city===undefined) l.city = '';
   if(l.referenceName===undefined) l.referenceName = '';
@@ -1298,6 +1299,97 @@ function crossSellOpportunityLeadsForMe(){
   );
 }
 
+// ============================================================================
+// AUTOMATIC CROSS-SELL CALLS — a walk-in referred to one department gets a
+// scheduled reception call asking about the others still uncovered, timed by
+// which department came first (a house gets sanitation, then tiles, then
+// windows/kitchen — in that build order), so the right product gets pitched
+// at the right stage of the customer's own renovation. Windows and Kitchen/
+// Wardrobe always share a single call slot (one call covers both, though each
+// still needs its own separate referral if the customer wants both).
+// ============================================================================
+// Which of the three call "slots" a department belongs to.
+function crossSellSlotForTeam(team){
+  return (team==='windows' || team==='kitchen') ? 'windowsKitchen' : team;
+}
+function crossSellSlotLabel(slot){
+  if(slot==='windowsKitchen') return 'Windows & Kitchen/Wardrobe';
+  return TEAM_LABELS[slot];
+}
+// Works out, for a lead that's been referred at least once, which of the
+// three slots (sanitary / tiles / windowsKitchen) still need a call, and
+// exactly when each is due — based on whichever department was referred
+// FIRST (and anything referred that same day alongside it). Priority when
+// several land together on day one: Tiles beats Sanitary beats Windows/
+// Kitchen — whichever of those is present and highest decides the table.
+// A slot that's already been referred (ever, not just on day one) or marked
+// "no need" is dropped entirely — no call is ever generated for it.
+function computeCrossSellSchedule(lead){
+  const assignments = (lead.assignments||[]).slice().sort((a,b)=>a.assignedAt.localeCompare(b.assignedAt));
+  if(!assignments.length) return null;
+  const firstDate = assignments[0].assignedAt.slice(0,10);
+  const sameDayTeams = new Set(assignments.filter(a=>a.assignedAt.slice(0,10)===firstDate).map(a=>a.team));
+  const referredTeams = new Set(assignments.map(a=>a.team));
+  const dismissed = new Set(lead.crossSellDismissed||[]);
+  function slotCovered(slot){
+    if(slot==='windowsKitchen') return referredTeams.has('windows') || referredTeams.has('kitchen') || dismissed.has('windows') || dismissed.has('kitchen');
+    return referredTeams.has(slot) || dismissed.has(slot);
+  }
+  let table;
+  if(sameDayTeams.has('tiles')) table = 'tiles';
+  else if(sameDayTeams.has('sanitary')) table = 'sanitary';
+  else table = 'flat';
+  const offsets = {
+    tiles: {sanitary: 2, windowsKitchen: 15},
+    sanitary: {tiles: 10, windowsKitchen: 25},
+    flat: {sanitary: 2, tiles: 2, windowsKitchen: 2}
+  };
+  const base = new Date(firstDate + 'T00:00:00.000Z');
+  const checkpoints = {};
+  ['sanitary','tiles','windowsKitchen'].forEach(slot=>{
+    if(slotCovered(slot)) return;
+    const offsetDays = offsets[table][slot];
+    if(offsetDays===undefined) return;
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    checkpoints[slot] = d.toISOString().slice(0,10);
+  });
+  return {firstDate, table, checkpoints};
+}
+// The actual engine: scans every qualifying lead and logs a reception call for
+// any slot whose checkpoint has arrived (or passed) and hasn't been called yet.
+// clampPastToTomorrow is only ever true for the one-time historical backfill —
+// it lands every already-due call on tomorrow as one clean batch instead of
+// scattering real (and sometimes very old) dates across the queue. In normal
+// day-to-day use it's false, so a newly-due call just gets today's date, since
+// the app checks far more often than once a day anyway.
+function generateDueCrossSellCalls(clampPastToTomorrow){
+  const today = todayStr();
+  let generated = 0;
+  LEADS.forEach(l=>{
+    // Scope: Walk-in leads, or any other-source lead that's actually been
+    // referred or visited — never a lead from another source sitting untouched.
+    if(l.source!=='Walk-in' && !leadHasAssignments(l)) return;
+    const schedule = computeCrossSellSchedule(l);
+    if(!schedule) return;
+    if(!l.crossSellAutoCalled) l.crossSellAutoCalled = [];
+    Object.entries(schedule.checkpoints).forEach(([slot, dueDate])=>{
+      if(l.crossSellAutoCalled.includes(slot)) return; // already generated once, never again
+      if(dueDate > today) return; // not due yet
+      const nextFollowUp = clampPastToTomorrow ? tomorrowStr() : today;
+      if(!l.receptionLog) l.receptionLog=[];
+      l.receptionLog.push({
+        timestamp: new Date().toISOString(), author:'System (auto)',
+        remarks: `Cross-sell Call — customer was referred to ${TEAM_LABELS[l.assignments[0].team] || l.assignments[0].team} on ${fmtDate(schedule.firstDate)}. Ask if they're also interested in ${crossSellSlotLabel(slot)}.`,
+        status:'followup', nextFollowUp, kind:'cross-sell-auto'
+      });
+      l.crossSellAutoCalled.push(slot);
+      generated++;
+    });
+  });
+  return generated;
+}
+
 function myAssignments(lead){
   if(!lead.assignments) return [];
   return lead.assignments.filter(a=>a.team===SESSION.role && a.salesperson===SESSION.name);
@@ -1520,6 +1612,7 @@ function tabsFor(role){
         {id:'Digital Ad', label:'Digital Ad', badge:()=>receptionUnreferredCountBySource('Digital Ad')},
         {id:'Reference', label:'Reference', badge:()=>receptionUnreferredCountBySource('Reference')},
         {id:'Physical Marketing', label:'Phys. Marketing', badge:()=>receptionUnreferredCountBySource('Physical Marketing')},
+        {id:'walkin-cross', label:'Walk-in (Cross)', badge:()=>pendingCrossSellCallLeads().length},
       ]},
     {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length},
     {id:'connectioncalls', label:'Connection Calls', badge:()=>receptionAssignedConnectionsForMe().length,
@@ -1948,6 +2041,16 @@ function viewCrossSellMine(){
 }
 
 /* ---------------- Reception: Inbox ---------------- */
+// Leads with a pending automatic cross-sell call sitting in Reception's queue
+// right now — the "Walk-in (Cross)" tab, kept separate from the lead's own
+// actual source so it's easy to spot these specifically.
+function pendingCrossSellCallLeads(){
+  return LEADS.filter(l=>{
+    if(!l.receptionLog || !l.receptionLog.length) return false;
+    const last = l.receptionLog[l.receptionLog.length-1];
+    return last.status==='followup' && last.kind==='cross-sell-auto';
+  });
+}
 function viewReceptionInbox(sourceFilter){
   let list = receptionActionableLeads();
   if(sourceFilter==='due'){
@@ -1958,6 +2061,8 @@ function viewReceptionInbox(sourceFilter){
       }
       return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
     });
+  } else if(sourceFilter==='walkin-cross'){
+    list = pendingCrossSellCallLeads();
   } else if(sourceFilter && sourceFilter!=='all'){
     list = list.filter(l=> l.source===sourceFilter);
   }
@@ -1991,6 +2096,8 @@ function leadCardReception(l){
     feedbackBanner = `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--ok-bg);color:var(--ok);border-radius:8px;font-weight:600;">🎉 Feedback call — this customer BOUGHT. Call to check they're happy.</div>`;
   } else if(last && last.kind==='feedback-lost'){
     feedbackBanner = `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--bad-bg);color:var(--bad);border-radius:8px;font-weight:600;">⚠ Feedback call — this customer did NOT buy (Lost). Call tactfully to understand why.</div>`;
+  } else if(last && last.kind==='cross-sell-auto'){
+    feedbackBanner = `<div class="lead-meta" style="margin-top:6px;padding:6px 10px;background:var(--brass-bg,#f5ecd9);color:var(--brass);border-radius:8px;font-weight:600;">📋 Cross-sell call — ${esc(last.remarks)}</div>`;
   }
   return `
   <div class="card">
@@ -3268,6 +3375,15 @@ function viewManageLogins(){
   </div>
 
   <div class="card" style="border-color:var(--brass);">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Generate Cross-Sell Calls (Historical Backfill)</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">
+      One-time step: goes through every Walk-in lead ever added (plus any other-source lead that's been referred or visited), works out which departments were never offered, and schedules the automatic cross-sell call for each — the same system now runs going forward on its own. Any call that would already be due or overdue lands on <b>tomorrow</b> as one clean batch, instead of scattering old dates everywhere; anything still genuinely in the future keeps its real date. Safe to run more than once — a call already generated for a given department never gets duplicated.
+    </div>
+    <button class="btn btn-brass btn-full" id="backfillCrossSellBtn">Run Backfill</button>
+    <div id="backfillCrossSellStatus" class="lead-meta" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card" style="border-color:var(--brass);">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Existing Feedback Call Dates</h3>
     <div class="lead-meta" style="margin-bottom:10px;">
       One-time correction: any feedback call already sitting in Reception's queue from before the per-team timing rules were added will still be scheduled at the old flat +2 days. Running this recalculates each one's date based on which team it was for and when the sale actually happened (Tiles/Sanitary: 15 days, Windows: 1 month, Kitchen: 29 days after Punch Order — Kitchen ones not yet finished get removed until they actually qualify). Safe to run more than once; only touches feedback calls still pending, never ones already logged.
@@ -3461,6 +3577,25 @@ function bindManageLoginsHandlers(){
       statusEl.textContent = `✓ Done — ${oldLeads.length} leads verified and migrated. Now running on the new storage format.`;
       toast(`Migration complete — ${oldLeads.length} leads`);
       renderApp();
+    });
+  }
+  const backfillCrossSellBtn = document.getElementById('backfillCrossSellBtn');
+  if(backfillCrossSellBtn){
+    backfillCrossSellBtn.addEventListener('click', async ()=>{
+      const statusEl = document.getElementById('backfillCrossSellStatus');
+      if(!confirm('Run the cross-sell call backfill across every walk-in lead in the system? Any call already due lands on tomorrow as one batch.')) return;
+      backfillCrossSellBtn.disabled = true;
+      statusEl.textContent = 'Working through every lead...';
+      const generated = generateDueCrossSellCalls(true);
+      if(generated===0){
+        statusEl.textContent = 'Nothing to generate — every qualifying lead is already fully covered.';
+        backfillCrossSellBtn.disabled = false;
+        return;
+      }
+      await saveLeads(LEADS);
+      statusEl.textContent = `✓ Done — ${generated} cross-sell call${generated===1?'':'s'} scheduled. Overdue ones landed on tomorrow; future ones kept their real date.`;
+      toast(`${generated} cross-sell call${generated===1?'':'s'} generated`);
+      backfillCrossSellBtn.disabled = false;
     });
   }
   const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');
@@ -4784,6 +4919,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   // to an assistant, stays available regardless — that's not a follow-up.
   const lastRecLog = lead.receptionLog && lead.receptionLog.length ? lead.receptionLog[lead.receptionLog.length-1] : null;
   const isPendingFeedbackCall = lastRecLog && lastRecLog.status==='followup' && (lastRecLog.kind==='feedback-sale' || lastRecLog.kind==='feedback-lost');
+  const isPendingCrossSellCall = lastRecLog && lastRecLog.status==='followup' && lastRecLog.kind==='cross-sell-auto';
   if(isReception){
     if(mode!=='refer'){
       if(isPendingFeedbackCall){
@@ -4796,6 +4932,17 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <label>Remarks</label>
           <textarea id="feedbackRemarks" placeholder="What did the customer say?"></textarea>
           <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
+        </div>`;
+      } else if(isPendingCrossSellCall){
+        // Same one-off shape as a feedback call — log what they said and it's
+        // done. If they're interested, use Refer to (another) Sales Team right
+        // below to actually send it over; this note alone doesn't auto-refer.
+        html += `
+        <div class="assign-block">
+          <div class="section-title" style="margin-top:0;">Log Cross-Sell Call</div>
+          <label>Remarks</label>
+          <textarea id="crossSellCallRemarks" placeholder="What did the customer say? If interested, use Refer to (another) Sales Team below."></textarea>
+          <button class="btn btn-primary btn-sm" id="saveCrossSellCallBtn">Save & Close</button>
         </div>`;
       } else if(!leadHasAssignments(lead)){
         html += `
@@ -6054,6 +6201,26 @@ function bindModalHandlers(lead){
     }));
   }
 
+  const saveCrossSellCallBtn = document.getElementById('saveCrossSellCallBtn');
+  if(saveCrossSellCallBtn){
+    saveCrossSellCallBtn.addEventListener('click', withSavingState(saveCrossSellCallBtn, async ()=>{
+      const remarks = document.getElementById('crossSellCallRemarks').value.trim();
+      if(!remarks){ toast('Add a remark'); return; }
+      if(!lead.receptionLog) lead.receptionLog=[];
+      // Same one-off shape as a feedback call — logging it resolves this specific
+      // call. If they're interested, Reception uses Refer to (another) Sales Team
+      // separately — this note doesn't auto-refer anything on its own.
+      lead.receptionLog.push({
+        timestamp:new Date().toISOString(), author:SESSION.name, remarks,
+        status:'no-followup', nextFollowUp:null
+      });
+      await saveLeads(LEADS);
+      toast('Cross-sell call logged');
+      closeModal();
+      renderApp();
+    }));
+  }
+
   document.querySelectorAll('.saveAssignBtn').forEach(btn=>{
     btn.addEventListener('click', withSavingState(btn, async ()=>{
       const aid = btn.dataset.assign;
@@ -6170,6 +6337,11 @@ function bindModalHandlers(lead){
     [LEADS, STAFF] = await Promise.all([loadLeads(), loadStaff()]);
     updateLeadsSyncedSnapshot();
     updateStaffSyncedSnapshot();
+    // Ongoing cross-sell check — catches any newly-due call as time passes.
+    // Never clamps to tomorrow (that's only for the one-time historical
+    // backfill) since this runs live, close to real-time.
+    const newlyDue = generateDueCrossSellCalls(false);
+    if(newlyDue>0){ await saveLeads(LEADS); }
     subscribeToLiveUpdates();
     document.getElementById('connectingScreen').classList.add('hidden');
     document.getElementById('loginScreen').classList.remove('hidden');

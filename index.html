@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260911104730';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260911110040';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1316,6 +1316,20 @@ function crossSellSlotLabel(slot){
   if(slot==='windowsKitchen') return 'Windows & Kitchen/Wardrobe';
   return TEAM_LABELS[slot];
 }
+function crossSellSlotTeams(slot){
+  return slot==='windowsKitchen' ? ['windows','kitchen'] : [slot];
+}
+// Older auto-calls (generated before this field was added) won't have a
+// stored slot — fall back to matching the slot label against the remarks text
+// so No Need still works correctly for those too.
+function inferCrossSellSlot(entry){
+  if(entry.slot) return entry.slot;
+  if(!entry.remarks) return null;
+  for(const slot of ['sanitary','tiles','windowsKitchen']){
+    if(entry.remarks.includes(crossSellSlotLabel(slot))) return slot;
+  }
+  return null;
+}
 // Works out, for a lead that's been referred at least once, which of the
 // three slots (sanitary / tiles / windowsKitchen) still need a call, and
 // exactly when each is due — based on whichever department was referred
@@ -1381,7 +1395,7 @@ function generateDueCrossSellCalls(clampPastToTomorrow){
       l.receptionLog.push({
         timestamp: new Date().toISOString(), author:'System (auto)',
         remarks: `Cross-sell Call — customer was referred to ${TEAM_LABELS[l.assignments[0].team] || l.assignments[0].team} on ${fmtDate(schedule.firstDate)}. Ask if they're also interested in ${crossSellSlotLabel(slot)}.`,
-        status:'followup', nextFollowUp, kind:'cross-sell-auto'
+        status:'followup', nextFollowUp, kind:'cross-sell-auto', slot
       });
       l.crossSellAutoCalled.push(slot);
       generated++;
@@ -4934,14 +4948,14 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
         </div>`;
       } else if(isPendingCrossSellCall){
-        // Three real outcomes: actually reached them and it's fully settled
-        // (logged, done — if interested, use Refer to (another) Sales Team
-        // below); reached them but they asked to be called back later; or
-        // couldn't reach them at all. The last two both keep this call in the
-        // queue with a next date instead of silently closing it out — they're
-        // just logged with different wording so the history is clear about
-        // what actually happened on the call.
-        html += `
+        // Four real outcomes: fully settled (logged, done — if interested,
+        // use Refer to (another) Sales Team below); asked to be called back
+        // later; couldn't reach them at all; or they said outright they don't
+        // want this department. The middle two both keep this call in the
+        // queue with a next date instead of silently closing it out.
+        html += (()=>{
+          const inferredSlot = inferCrossSellSlot(lastRecLog);
+          return `
         <div class="assign-block">
           <div class="section-title" style="margin-top:0;">Log Cross-Sell Call</div>
           <label>Outcome</label>
@@ -4949,6 +4963,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <option value="done">Reached them — logged, done</option>
             <option value="callback">Reached them — asked to call back later</option>
             <option value="retry">Didn't pick up / no answer — try again later</option>
+            ${inferredSlot ? `<option value="noneed">Not interested — mark No Need for ${esc(crossSellSlotLabel(inferredSlot))}</option>` : ''}
           </select>
           <div id="crossSellRetryDateWrap" class="hidden">
             <label>Next call date <span style="color:var(--bad);">*</span></label>
@@ -4956,8 +4971,9 @@ function renderLeadDetail(lead, focusAssignId, mode){
           </div>
           <label>Remarks</label>
           <textarea id="crossSellCallRemarks" placeholder="What happened on the call? If interested, use Refer to (another) Sales Team below."></textarea>
-          <button class="btn btn-primary btn-sm" id="saveCrossSellCallBtn">Save</button>
+          <button class="btn btn-primary btn-sm" id="saveCrossSellCallBtn" data-slot="${inferredSlot||''}">Save</button>
         </div>`;
+        })();
       } else if(!leadHasAssignments(lead)){
         html += `
         <div class="assign-block">
@@ -6220,21 +6236,39 @@ function bindModalHandlers(lead){
     saveCrossSellCallBtn.addEventListener('click', withSavingState(saveCrossSellCallBtn, async ()=>{
       const outcome = document.getElementById('crossSellCallOutcome').value;
       const remarks = document.getElementById('crossSellCallRemarks').value.trim();
+      const slot = saveCrossSellCallBtn.dataset.slot || null;
       if(!remarks){ toast('Add a remark'); return; }
       if(outcome==='retry' || outcome==='callback'){
         const nextDate = document.getElementById('crossSellRetryDate').value;
         if(!nextDate){ toast('Choose a next call date'); return; }
         if(!lead.receptionLog) lead.receptionLog=[];
-        // kind stays 'cross-sell-auto' so this keeps showing under Walk-in
-        // (Cross) — same call, just not resolved yet, exactly like any other
-        // follow-up. Only the remarks distinguish "no answer" from "asked to
-        // call back later" in the history.
+        // kind and slot both carry forward so this keeps showing under
+        // Walk-in (Cross) — same call, just not resolved yet, exactly like
+        // any other follow-up. Only the remarks distinguish "no answer" from
+        // "asked to call back later" in the history.
         lead.receptionLog.push({
           timestamp:new Date().toISOString(), author:SESSION.name, remarks,
-          status:'followup', nextFollowUp:nextDate, kind:'cross-sell-auto'
+          status:'followup', nextFollowUp:nextDate, kind:'cross-sell-auto', slot
         });
         await saveLeads(LEADS);
         toast('Will try again on ' + fmtDate(nextDate));
+      } else if(outcome==='noneed'){
+        if(!lead.receptionLog) lead.receptionLog=[];
+        lead.receptionLog.push({
+          timestamp:new Date().toISOString(), author:SESSION.name, remarks,
+          status:'no-followup', nextFollowUp:null
+        });
+        // Actually record the dismissal — a combined Windows/Kitchen slot
+        // marks both real teams, so a manual cross-sell check elsewhere
+        // correctly treats both as settled too.
+        if(slot){
+          if(!lead.crossSellDismissed) lead.crossSellDismissed = [];
+          crossSellSlotTeams(slot).forEach(team=>{
+            if(!lead.crossSellDismissed.includes(team)) lead.crossSellDismissed.push(team);
+          });
+        }
+        await saveLeads(LEADS);
+        toast('Marked No Need');
       } else {
         if(!lead.receptionLog) lead.receptionLog=[];
         // Reached them — logging it resolves this specific call. If they're
@@ -6254,7 +6288,7 @@ function bindModalHandlers(lead){
     const crossSellRetryWrap = document.getElementById('crossSellRetryDateWrap');
     if(crossSellOutcomeSel){
       crossSellOutcomeSel.addEventListener('change', ()=>{
-        crossSellRetryWrap.classList.toggle('hidden', crossSellOutcomeSel.value==='done');
+        crossSellRetryWrap.classList.toggle('hidden', crossSellOutcomeSel.value==='done' || crossSellOutcomeSel.value==='noneed');
       });
     }
   }

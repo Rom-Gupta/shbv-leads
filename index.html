@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260911110040';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260911110427';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1402,6 +1402,36 @@ function generateDueCrossSellCalls(clampPastToTomorrow){
     });
   });
   return generated;
+}
+// Read-only audit — never writes anything. Goes through every qualifying
+// lead and reports exactly what state it's in, specifically calling out any
+// lead whose checkpoint is due but was somehow never generated — which
+// shouldn't be possible (the ongoing check runs on every app load) but is
+// worth being able to actually verify rather than assume.
+function auditCrossSellSystem(){
+  const today = todayStr();
+  const pendingIds = new Set(pendingCrossSellCallLeads().map(l=>l.id));
+  let notYetReferred = 0, fullyAddressed = 0, waiting = 0, currentlyInQueue = 0, historicallyGenerated = 0;
+  const stuck = [];
+  LEADS.forEach(l=>{
+    if(l.source!=='Walk-in' && !leadHasAssignments(l)) return; // out of scope entirely
+    const schedule = computeCrossSellSchedule(l);
+    if(!schedule){ notYetReferred++; return; }
+    const slots = Object.keys(schedule.checkpoints);
+    if(slots.length===0){ fullyAddressed++; return; }
+    let anyStuck = false, anyWaiting = false, anyGenerated = false;
+    slots.forEach(slot=>{
+      const dueDate = schedule.checkpoints[slot];
+      if((l.crossSellAutoCalled||[]).includes(slot)){ anyGenerated = true; return; }
+      if(dueDate > today){ anyWaiting = true; return; }
+      anyStuck = true; // due or overdue, and never generated
+    });
+    if(anyStuck) stuck.push({lead:l, schedule});
+    if(pendingIds.has(l.id)) currentlyInQueue++;
+    else if(anyGenerated) historicallyGenerated++;
+    else if(anyWaiting && !anyStuck) waiting++;
+  });
+  return {notYetReferred, fullyAddressed, waiting, currentlyInQueue, historicallyGenerated, stuck};
 }
 
 function myAssignments(lead){
@@ -3398,6 +3428,15 @@ function viewManageLogins(){
   </div>
 
   <div class="card" style="border-color:var(--brass);">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Check Cross-Sell System Health</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">
+      Read-only audit — changes nothing. Goes through every qualifying lead and reports exactly which state each one is in: how many have a call currently sitting in the queue, how many have already had every applicable department addressed, and specifically any lead whose checkpoint is due but somehow never got a call generated — which would be a genuine bug worth flagging.
+    </div>
+    <button class="btn btn-ghost btn-full" id="checkCrossSellHealthBtn">Run Health Check</button>
+    <div id="crossSellHealthStatus" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card" style="border-color:var(--brass);">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Existing Feedback Call Dates</h3>
     <div class="lead-meta" style="margin-bottom:10px;">
       One-time correction: any feedback call already sitting in Reception's queue from before the per-team timing rules were added will still be scheduled at the old flat +2 days. Running this recalculates each one's date based on which team it was for and when the sale actually happened (Tiles/Sanitary: 15 days, Windows: 1 month, Kitchen: 29 days after Punch Order — Kitchen ones not yet finished get removed until they actually qualify). Safe to run more than once; only touches feedback calls still pending, never ones already logged.
@@ -3610,6 +3649,24 @@ function bindManageLoginsHandlers(){
       statusEl.textContent = `✓ Done — ${generated} cross-sell call${generated===1?'':'s'} scheduled. Overdue ones landed on tomorrow; future ones kept their real date.`;
       toast(`${generated} cross-sell call${generated===1?'':'s'} generated`);
       backfillCrossSellBtn.disabled = false;
+    });
+  }
+  const checkCrossSellHealthBtn = document.getElementById('checkCrossSellHealthBtn');
+  if(checkCrossSellHealthBtn){
+    checkCrossSellHealthBtn.addEventListener('click', ()=>{
+      const statusEl = document.getElementById('crossSellHealthStatus');
+      const r = auditCrossSellSystem();
+      statusEl.innerHTML = `
+        <div class="lead-meta">Not yet referred anywhere: <b>${r.notYetReferred}</b> (not applicable yet)</div>
+        <div class="lead-meta">Fully addressed, nothing left needed: <b>${r.fullyAddressed}</b></div>
+        <div class="lead-meta">Still waiting on a future checkpoint: <b>${r.waiting}</b></div>
+        <div class="lead-meta">Call currently sitting in Reception's queue right now: <b>${r.currentlyInQueue}</b></div>
+        <div class="lead-meta">Call generated previously, already resolved: <b>${r.historicallyGenerated}</b></div>
+        <div class="lead-meta" style="margin-top:8px;font-weight:700;color:${r.stuck.length?'var(--bad)':'var(--ok)'};">
+          Due but never generated (should be 0): ${r.stuck.length}
+        </div>
+        ${r.stuck.length ? `<div style="margin-top:8px;">${r.stuck.map(s=>`<div class="lead-meta">⚠ ${esc(s.lead.name)} (${esc(s.lead.phone)}) — ${Object.entries(s.schedule.checkpoints).filter(([slot])=>!(s.lead.crossSellAutoCalled||[]).includes(slot) && s.schedule.checkpoints[slot]<=todayStr()).map(([slot,date])=>`${crossSellSlotLabel(slot)} was due ${fmtDate(date)}`).join(', ')}</div>`).join('')}</div>` : ''}
+      `;
     });
   }
   const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');

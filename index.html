@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916113141';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916113809';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3736,7 +3736,7 @@ function inferHistoricalResolutions(l){
       return;
     }
     if(entry.status==='no-followup' && pendingKind){
-      results.push({timestamp: entry.timestamp, kind: entry.kind || pendingKind, outcome: entry.outcome || null});
+      results.push({timestamp: entry.timestamp, kind: entry.kind || pendingKind, outcome: entry.outcome || null, remarks: entry.remarks, author: entry.author});
       pendingKind = null;
     }
   });
@@ -3769,7 +3769,43 @@ function computeAutoCallStats(fromDate, toDate){
   });
   return {feedbackScheduled, crossScheduled, feedbackSale, feedbackLost, crossDone, crossNoNeed, crossOutcomeUnknown, crossPending: pendingCrossSellCallLeads().length};
 }
-function autoCallScorecardHtml(fromDate, toDate){
+// The actual logged entries behind the resolved counts above — same
+// inferHistoricalResolutions lookup, just returning the real records
+// (which lead, what was actually typed) instead of a tally.
+function autoCallLogDetails(fromDate, toDate, filterType){
+  const results = [];
+  LEADS.forEach(l=>{
+    inferHistoricalResolutions(l).forEach(r=>{
+      if(!inRange(r.timestamp, fromDate, toDate)) return;
+      const isFeedback = r.kind==='feedback-sale' || r.kind==='feedback-lost';
+      const isCross = r.kind==='cross-sell-auto';
+      if(filterType==='feedback' && !isFeedback) return;
+      if(filterType==='cross' && !isCross) return;
+      results.push({lead:l, ...r});
+    });
+  });
+  return results.sort((a,b)=> b.timestamp.localeCompare(a.timestamp));
+}
+function renderAutoCallLogDetails(list){
+  if(!list.length) return `<div class="empty">Nothing logged in this period.</div>`;
+  return resultCountLine(list.length) + list.map(r=>{
+    const tag = r.kind==='feedback-sale' ? 'Post-Sale' : r.kind==='feedback-lost' ? 'Post-Lost'
+      : r.outcome==='noneed' ? 'No Need' : r.outcome==='done' ? 'Referred/Logged' : 'Outcome not recorded (pre-fix)';
+    return `
+    <div class="card">
+      <div class="lead-name">${esc(r.lead.name)}</div>
+      <div class="lead-meta" style="margin-bottom:6px;">${esc(r.lead.phone)}${callIcon(r.lead.phone)}${whatsappIcon(r.lead.phone)}</div>
+      <div class="log-entry">
+        <div class="meta">${esc(r.author||'—')} · ${fmtDateTime(r.timestamp)} · ${tag}</div>
+        <div style="margin-top:4px;">${esc(r.remarks||'—')}</div>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-ghost btn-sm" data-open-lead="${r.lead.id}">View Full Detail</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function autoCallScorecardHtml(fromDate, toDate, prefix){
   const s = computeAutoCallStats(fromDate, toDate);
   const feedbackResolved = s.feedbackSale + s.feedbackLost;
   const crossResolved = s.crossDone + s.crossNoNeed + s.crossOutcomeUnknown;
@@ -3778,8 +3814,16 @@ function autoCallScorecardHtml(fromDate, toDate){
   <div class="card">
     <div class="lead-meta" style="margin-bottom:6px;"><b>Feedback Calls scheduled:</b> ${s.feedbackScheduled}</div>
     <div class="lead-meta"><b>Cross-sell Calls scheduled:</b> ${s.crossScheduled} · <b>${s.crossPending}</b> still pending in queue right now</div>
-    <div class="lead-meta" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);"><b>Feedback resolved:</b> ${feedbackResolved} (${s.feedbackSale} post-sale, ${s.feedbackLost} post-lost)</div>
-    <div class="lead-meta"><b>Cross-sell resolved:</b> ${crossResolved} (${s.crossDone} referred/logged, ${s.crossNoNeed} marked No Need${s.crossOutcomeUnknown?`, ${s.crossOutcomeUnknown} outcome not recorded — resolved before No Need tracking existed`:''})</div>
+    <div class="lead-meta" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
+      <b>Feedback resolved:</b> ${feedbackResolved} (${s.feedbackSale} post-sale, ${s.feedbackLost} post-lost)
+      <button class="btn btn-ghost btn-sm autoCallLogToggle" data-target="${prefix}FeedbackLogDetails" data-type="feedback" data-from="${fromDate}" data-to="${toDate}" style="margin-left:8px;padding:2px 10px;">View Log</button>
+    </div>
+    <div id="${prefix}FeedbackLogDetails" class="hidden" style="margin-top:8px;"></div>
+    <div class="lead-meta" style="margin-top:8px;">
+      <b>Cross-sell resolved:</b> ${crossResolved} (${s.crossDone} referred/logged, ${s.crossNoNeed} marked No Need${s.crossOutcomeUnknown?`, ${s.crossOutcomeUnknown} outcome not recorded — resolved before No Need tracking existed`:''})
+      <button class="btn btn-ghost btn-sm autoCallLogToggle" data-target="${prefix}CrossLogDetails" data-type="cross" data-from="${fromDate}" data-to="${toDate}" style="margin-left:8px;padding:2px 10px;">View Log</button>
+    </div>
+    <div id="${prefix}CrossLogDetails" class="hidden" style="margin-top:8px;"></div>
   </div>`;
 }
 
@@ -3873,7 +3917,7 @@ function viewWeeklyReport(){
       }).join('')}
     </table>
   </div>
-  ${autoCallScorecardHtml(range.start, range.end)}
+  ${autoCallScorecardHtml(range.start, range.end, 'wk')}
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
@@ -3929,7 +3973,7 @@ function viewMonthlyReport(){
       }).join('')}
     </table>
   </div>
-  ${autoCallScorecardHtml(range.start, range.end)}
+  ${autoCallScorecardHtml(range.start, range.end, 'mo')}
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
@@ -4763,7 +4807,7 @@ function viewReports(){
         </div>
       </div>`).join('')}
 
-  ${autoCallScorecardHtml(today, today)}
+  ${autoCallScorecardHtml(today, today, 'daily')}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Due Today (Pending + Already Called)</div>
   <select id="followupTodayDeptFilter" style="margin-bottom:10px;">
@@ -5262,6 +5306,26 @@ function bindDynamicHandlers(){
   });
   bindDeleteLeadCardButtons();
   bindCalendarButtons();
+
+  document.querySelectorAll('.autoCallLogToggle').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const targetEl = document.getElementById(btn.dataset.target);
+      if(!targetEl) return;
+      const isHidden = targetEl.classList.contains('hidden');
+      if(isHidden){
+        const list = autoCallLogDetails(btn.dataset.from, btn.dataset.to, btn.dataset.type);
+        targetEl.innerHTML = renderAutoCallLogDetails(list);
+        targetEl.classList.remove('hidden');
+        btn.textContent = 'Hide Log';
+        targetEl.querySelectorAll('[data-open-lead]').forEach(el=>{
+          el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, null, 'view', null));
+        });
+      } else {
+        targetEl.classList.add('hidden');
+        btn.textContent = 'View Log';
+      }
+    });
+  });
 
   const customReportDateInput = document.getElementById('customReportDateInput');
   if(customReportDateInput){

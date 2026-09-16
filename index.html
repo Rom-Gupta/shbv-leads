@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916110716';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916110901';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4433,7 +4433,15 @@ function groupTodayActivityByLead(targetDate){
   }
   LEADS.forEach(l=>{
     (l.receptionLog||[]).forEach(log=>{
-      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', salesperson:null, referredBy:null, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp, kind:log.kind});
+      if(log.timestamp.slice(0,10)!==today) return;
+      // The moment a sale/loss is marked (or a cross-sell checkpoint fires),
+      // the system immediately creates a receptionLog entry scheduling a
+      // FUTURE call — that entry's own timestamp is today even though no call
+      // has happened yet and its real due date is days away. Without this
+      // check, marking a sale today made it look like a feedback/cross-sell
+      // call had already been made today, when none had.
+      if(log.author==='System (auto)' && log.status==='followup') return;
+      push(l, {team:'Reception', salesperson:null, referredBy:null, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp, kind:log.kind});
     });
     (l.assignments||[]).forEach(a=>{
       (a.log||[]).forEach(log=>{

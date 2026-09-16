@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916104231';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916110134';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4357,7 +4357,7 @@ function pendingDueTodayGroups(){
     if(l.receptionLog && l.receptionLog.length){
       const last = l.receptionLog[l.receptionLog.length-1];
       if(last.status==='followup' && isDueToday(last.nextFollowUp) && last.timestamp.slice(0,10)!==today){
-        push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp});
+        push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp, kind:last.kind});
       }
     }
     (l.assignments||[]).forEach(a=>{
@@ -4399,7 +4399,7 @@ function groupTodayActivityByLead(targetDate){
   }
   LEADS.forEach(l=>{
     (l.receptionLog||[]).forEach(log=>{
-      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', salesperson:null, referredBy:null, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp});
+      if(log.timestamp.slice(0,10)===today) push(l, {team:'Reception', salesperson:null, referredBy:null, author:log.author, remarks:log.remarks, status:log.status, time:log.timestamp, nextFollowUp:log.nextFollowUp, kind:log.kind});
     });
     (l.assignments||[]).forEach(a=>{
       (a.log||[]).forEach(log=>{
@@ -4433,11 +4433,20 @@ function entryWhoLabel(e){
 
 // Note: entries here already carry display team labels (e.g. "Tiles"), not raw
 // keys — so we compare against TEAM_LABELS[dept] rather than the raw dept key.
-function renderFollowupTodayResults(followupGroups, filterVal, callStatusFilter){
+function renderFollowupTodayResults(followupGroups, filterVal, callStatusFilter, callTypeFilter){
   if(!filterVal) return `<div class="empty">Select a filter above to see today's follow-ups.</div>`;
   let list = followupGroups;
   if(filterVal==='reception'){
     list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.team==='Reception')})).filter(g=>g.entries.length);
+    if(callTypeFilter==='feedback'){
+      list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.kind==='feedback-sale' || e.kind==='feedback-lost')})).filter(g=>g.entries.length);
+    } else if(callTypeFilter==='cross'){
+      list = list.map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.kind==='cross-sell-auto')})).filter(g=>g.entries.length);
+    } else if(callTypeFilter==='marketing'){
+      list = list.filter(g=>g.lead.source==='Physical Marketing').map(g=>({lead:g.lead, entries:g.entries.filter(e=>!e.kind)})).filter(g=>g.entries.length);
+    } else if(callTypeFilter==='digital'){
+      list = list.filter(g=>g.lead.source==='Digital Ad').map(g=>({lead:g.lead, entries:g.entries.filter(e=>!e.kind)})).filter(g=>g.entries.length);
+    }
   } else if(filterVal.startsWith('sales:')){
     const parts = filterVal.split(':');
     const teamLabel = TEAM_LABELS[parts[1]], name = parts[2];
@@ -4684,6 +4693,15 @@ function viewReports(){
   </select>
   <div id="followupTodayPersonWrap" class="hidden">
     <select id="followupTodayPersonFilter" style="margin-bottom:10px;"></select>
+  </div>
+  <div id="followupTodayCallTypeWrap" class="hidden">
+    <select id="followupTodayCallTypeFilter" style="margin-bottom:10px;">
+      <option value="">Call type: All</option>
+      <option value="feedback">Feedback Calls</option>
+      <option value="cross">Cross-sell Calls</option>
+      <option value="marketing">Physical Marketing</option>
+      <option value="digital">Digital Lead</option>
+    </select>
   </div>
   <select id="followupTodayCallStatusFilter" style="margin-bottom:10px;">
     <option value="">Call status: All</option>
@@ -5823,6 +5841,8 @@ function bindDynamicHandlers(){
   const followupTodayDeptFilter = document.getElementById('followupTodayDeptFilter');
   const followupTodayPersonWrap = document.getElementById('followupTodayPersonWrap');
   const followupTodayPersonFilter = document.getElementById('followupTodayPersonFilter');
+  const followupTodayCallTypeWrap = document.getElementById('followupTodayCallTypeWrap');
+  const followupTodayCallTypeFilter = document.getElementById('followupTodayCallTypeFilter');
   const followupTodayCallStatusFilter = document.getElementById('followupTodayCallStatusFilter');
   function refreshFollowupToday(){
     const followupGroups = buildFollowupTodayGroups();
@@ -5832,7 +5852,7 @@ function bindDynamicHandlers(){
     else if(dept){
       filterVal = followupTodayPersonFilter.value ? `sales:${dept}:${followupTodayPersonFilter.value}` : `sales:${dept}`;
     }
-    document.getElementById('followupTodayResults').innerHTML = renderFollowupTodayResults(followupGroups, filterVal, followupTodayCallStatusFilter?followupTodayCallStatusFilter.value:'');
+    document.getElementById('followupTodayResults').innerHTML = renderFollowupTodayResults(followupGroups, filterVal, followupTodayCallStatusFilter?followupTodayCallStatusFilter.value:'', followupTodayCallTypeFilter?followupTodayCallTypeFilter.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -5842,6 +5862,7 @@ function bindDynamicHandlers(){
       const dept = followupTodayDeptFilter.value;
       const isRealTeam = dept && dept!=='reception';
       followupTodayPersonWrap.classList.toggle('hidden', !isRealTeam);
+      if(followupTodayCallTypeWrap) followupTodayCallTypeWrap.classList.toggle('hidden', dept!=='reception');
       if(isRealTeam){
         const people = STAFF[dept]||[];
         followupTodayPersonFilter.innerHTML = `<option value="">Everyone in ${TEAM_LABELS[dept]}</option>` +
@@ -5850,6 +5871,7 @@ function bindDynamicHandlers(){
       refreshFollowupToday();
     });
     followupTodayPersonFilter.addEventListener('change', refreshFollowupToday);
+    if(followupTodayCallTypeFilter) followupTodayCallTypeFilter.addEventListener('change', refreshFollowupToday);
     if(followupTodayCallStatusFilter) followupTodayCallStatusFilter.addEventListener('change', refreshFollowupToday);
   }
 

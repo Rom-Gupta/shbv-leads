@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916062919';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916103000';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5265,6 +5265,18 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <input type="text" id="editLeadCity" autocomplete="off" value="${esc(lead.city||'')}">
         <div id="editLeadCitySuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
       </div>
+      <label>Lead source</label>
+      <select id="editLeadSource">
+        ${SOURCE_OPTIONS.map(s=>`<option value="${s}" ${lead.source===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <div id="editLeadReferenceWrap" class="${lead.source==='Reference'?'':'hidden'}">
+        <label>Name of reference</label>
+        <input type="text" id="editLeadReferenceName" placeholder="Who referred this customer?" value="${esc(lead.referenceName||'')}">
+      </div>
+      <div id="editLeadMarketingWrap" class="${lead.source==='Physical Marketing'?'':'hidden'}">
+        <label>Marketing person</label>
+        <input type="text" id="editLeadMarketingPerson" placeholder="Who brought this customer in?" value="${esc(lead.marketingPersonName||'')}">
+      </div>
       <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
     </div>
     ${isHead ? `<button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>` : ''}
@@ -6276,17 +6288,32 @@ function bindModalHandlers(lead){
       const address = document.getElementById('editLeadAddress').value.trim();
       const state = document.getElementById('editLeadState').value;
       const city = document.getElementById('editLeadCity').value.trim();
+      const source = document.getElementById('editLeadSource').value;
+      const referenceName = source==='Reference' ? document.getElementById('editLeadReferenceName').value.trim() : '';
+      const marketingPersonName = source==='Physical Marketing' ? document.getElementById('editLeadMarketingPerson').value.trim() : '';
       if(!name || !phone){ toast('Name and phone are required'); return; }
       target.name = name;
       target.phone = phone;
       target.address = address;
       target.state = state;
       target.city = city;
+      target.source = source;
+      target.referenceName = referenceName;
+      target.marketingPersonName = marketingPersonName;
       await saveLeads(LEADS);
       toast('Lead details updated');
       closeModal();
       openLeadModal(id, null, 'view', null);
     });
+    const editLeadSourceSel = document.getElementById('editLeadSource');
+    const editLeadReferenceWrap = document.getElementById('editLeadReferenceWrap');
+    const editLeadMarketingWrap = document.getElementById('editLeadMarketingWrap');
+    if(editLeadSourceSel){
+      editLeadSourceSel.addEventListener('change', ()=>{
+        editLeadReferenceWrap.classList.toggle('hidden', editLeadSourceSel.value!=='Reference');
+        editLeadMarketingWrap.classList.toggle('hidden', editLeadSourceSel.value!=='Physical Marketing');
+      });
+    }
   }
 
   const deleteLeadBtn = document.getElementById('deleteLeadBtn');

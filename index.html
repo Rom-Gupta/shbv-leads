@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916103932';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916104231';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1405,36 +1405,6 @@ function generateDueCrossSellCalls(clampPastToTomorrow){
     });
   });
   return generated;
-}
-// Read-only audit — never writes anything. Goes through every qualifying
-// lead and reports exactly what state it's in, specifically calling out any
-// lead whose checkpoint is due but was somehow never generated — which
-// shouldn't be possible (the ongoing check runs on every app load) but is
-// worth being able to actually verify rather than assume.
-function auditCrossSellSystem(){
-  const today = todayStr();
-  const pendingIds = new Set(pendingCrossSellCallLeads().map(l=>l.id));
-  let notYetReferred = 0, fullyAddressed = 0, waiting = 0, currentlyInQueue = 0, historicallyGenerated = 0;
-  const stuck = [];
-  LEADS.forEach(l=>{
-    if(l.source!=='Walk-in' && !leadHasAssignments(l)) return; // out of scope entirely
-    const schedule = computeCrossSellSchedule(l);
-    if(!schedule){ notYetReferred++; return; }
-    const slots = Object.keys(schedule.checkpoints);
-    if(slots.length===0){ fullyAddressed++; return; }
-    let anyStuck = false, anyWaiting = false, anyGenerated = false;
-    slots.forEach(slot=>{
-      const dueDate = schedule.checkpoints[slot];
-      if((l.crossSellAutoCalled||[]).includes(slot)){ anyGenerated = true; return; }
-      if(dueDate > today){ anyWaiting = true; return; }
-      anyStuck = true; // due or overdue, and never generated
-    });
-    if(anyStuck) stuck.push({lead:l, schedule});
-    if(pendingIds.has(l.id)) currentlyInQueue++;
-    else if(anyGenerated) historicallyGenerated++;
-    else if(anyWaiting && !anyStuck) waiting++;
-  });
-  return {notYetReferred, fullyAddressed, waiting, currentlyInQueue, historicallyGenerated, stuck};
 }
 
 function myAssignments(lead){
@@ -3453,58 +3423,6 @@ function lastLoginText(p){
 function viewManageLogins(){
   const depts = ['reception','tiles','sanitary','kitchen','windows'];
   return `
-  <div class="card" style="border-color:${USING_LEADS_V2 ? 'var(--ok)' : 'var(--bad)'};">
-    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">${USING_LEADS_V2 ? '✓ Running on New Storage' : '⚠️ Migrate to New Storage'}</h3>
-    ${USING_LEADS_V2 ? `
-      <div class="lead-meta">This app is now using the new per-lead storage format. Each lead lives in its own document, so saves from different people never collide anymore. The old data is still sitting untouched underneath as a backup, in case it's ever needed.</div>
-    ` : `
-      <div class="lead-meta" style="margin-bottom:10px;">
-        A one-time, one-way step: copies every lead into a new storage format where each lead is its own independent document, instead of all leads sharing one document. This is what actually fixes saves occasionally colliding when multiple people save around the same time.
-        <br><br>
-        <b>Before running this:</b> make sure everyone's finished with whatever they're doing — this takes a few seconds but it's best done at a quiet moment, not mid-shift.
-        <br><br>
-        The old data is never deleted — it's left completely untouched as an automatic backup. This is safe to click even if you're not 100% sure; nothing is destructive.
-      </div>
-      <button class="btn btn-brass btn-full" id="migrateToV2Btn">Migrate to New Storage Now</button>
-      <div id="migrateV2Status" class="lead-meta" style="margin-top:8px;"></div>
-    `}
-  </div>
-
-  <div class="card" style="border-color:var(--brass);">
-    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Generate Cross-Sell Calls (Historical Backfill)</h3>
-    <div class="lead-meta" style="margin-bottom:10px;">
-      One-time step: goes through every Walk-in lead ever added (plus any other-source lead that's been referred or visited), works out which departments were never offered, and schedules the automatic cross-sell call for each — the same system now runs going forward on its own. Any call that would already be due or overdue lands on <b>tomorrow</b> as one clean batch, instead of scattering old dates everywhere; anything still genuinely in the future keeps its real date. Safe to run more than once — a call already generated for a given department never gets duplicated.
-    </div>
-    <button class="btn btn-brass btn-full" id="backfillCrossSellBtn">Run Backfill</button>
-    <div id="backfillCrossSellStatus" class="lead-meta" style="margin-top:8px;"></div>
-  </div>
-
-  <div class="card" style="border-color:var(--brass);">
-    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Check Cross-Sell System Health</h3>
-    <div class="lead-meta" style="margin-bottom:10px;">
-      Read-only audit — changes nothing. Goes through every qualifying lead and reports exactly which state each one is in: how many have a call currently sitting in the queue, how many have already had every applicable department addressed, and specifically any lead whose checkpoint is due but somehow never got a call generated — which would be a genuine bug worth flagging.
-    </div>
-    <button class="btn btn-ghost btn-full" id="checkCrossSellHealthBtn">Run Health Check</button>
-    <div id="crossSellHealthStatus" style="margin-top:10px;"></div>
-  </div>
-
-  <div class="card" style="border-color:var(--brass);">
-    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Existing Feedback Call Dates</h3>
-    <div class="lead-meta" style="margin-bottom:10px;">
-      One-time correction: any feedback call already sitting in Reception's queue from before the per-team timing rules were added will still be scheduled at the old flat +2 days. Running this recalculates each one's date based on which team it was for and when the sale actually happened (Tiles/Sanitary: 15 days, Windows: 1 month, Kitchen: 29 days after Punch Order — Kitchen ones not yet finished get removed until they actually qualify). Safe to run more than once; only touches feedback calls still pending, never ones already logged.
-    </div>
-    <button class="btn btn-brass btn-full" id="fixFeedbackDatesBtn">Run Correction</button>
-  </div>
-
-  <div class="card" style="border-color:var(--brass);">
-    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Digital Lead Phone Numbers</h3>
-    <div class="lead-meta" style="margin-bottom:10px;">
-      One-time correction: the digital-lead import stored some phone numbers as the full 12-digit "91XXXXXXXXXX" (or an 11-digit "0XXXXXXXXXX") instead of the plain 10-digit number — the app already shows "+91" on its own everywhere a number is displayed, so these were showing up doubled. Running this strips the redundant prefix wherever it's still there. Only touches leads from that specific import (matched by Source: Digital Ad plus the "Digital lead import" marker on their first call log entry) — every other lead is left completely untouched. Safe to run more than once; already-correct numbers are skipped.
-    </div>
-    <button class="btn btn-brass btn-full" id="fixDigitalPhonesBtn">Run Correction</button>
-    <div id="fixDigitalPhonesStatus" class="lead-meta" style="margin-top:8px;"></div>
-  </div>
-
   <div class="card">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
     <label>Department</label>
@@ -3589,204 +3507,16 @@ function viewManageLogins(){
   `;
 }
 
-// One-time fix for the digital-lead import, which stored some phone numbers
-// as the full 12-digit "91XXXXXXXXXX" (or an 11-digit "0XXXXXXXXXX") instead
-// of the plain 10-digit number — the app already shows "+91" on its own
-// everywhere a number is displayed. Scoped tightly to that specific import
-// batch (Source: Digital Ad + the "Digital lead import" marker on the FIRST
-// reception log entry specifically — matching exactly how that import script
-// wrote it) so it can never touch any other lead's phone number, even
-// another genuine Digital Ad lead added separately by Reception.
+// toBare10Phone: still used by the Duplicates finder to canonicalize numbers
+// for comparison, even though the one-time digital-import phone fix that
+// originally needed it has since been run and removed.
 function toBare10Phone(phone){
   let digits = (phone || '').replace(/\D/g, '');
   if(digits.length===12 && digits.startsWith('91')) digits = digits.slice(2);
   else if(digits.length===11 && digits.startsWith('0')) digits = digits.slice(1);
   return digits;
 }
-function fixDigitalLeadPhoneNumbers(){
-  let fixed = 0;
-  LEADS.forEach(l=>{
-    const firstLog = l.receptionLog && l.receptionLog[0];
-    const isImportBatch = l.source==='Digital Ad' && firstLog && firstLog.remarks && firstLog.remarks.startsWith('Digital lead import');
-    if(!isImportBatch) return;
-    const clean = toBare10Phone(l.phone);
-    if(clean !== l.phone){
-      l.phone = clean;
-      fixed++;
-    }
-  });
-  return fixed;
-}
-// One-time fix for feedback calls scheduled before the per-team timing rules
-// existed. Only touches entries still pending (last log, status 'followup',
-// kind 'feedback-sale') — never rewrites anything already logged/resolved.
-function correctExistingFeedbackCallDates(){
-  let updated = 0, removed = 0;
-  LEADS.forEach(l=>{
-    if(!l.receptionLog || !l.receptionLog.length) return;
-    const last = l.receptionLog[l.receptionLog.length-1];
-    if(last.kind!=='feedback-sale' || last.status!=='followup') return;
-    let matchedAssign = null;
-    for(const team of Object.keys(TEAM_LABELS)){
-      if(last.remarks && last.remarks.includes(TEAM_LABELS[team])){
-        matchedAssign = (l.assignments||[]).find(a=>a.team===team && a.status==='sale');
-        if(matchedAssign) break;
-      }
-    }
-    if(!matchedAssign) matchedAssign = (l.assignments||[]).find(a=>a.status==='sale');
-    if(!matchedAssign) return;
-    const team = matchedAssign.team;
-    const saleLog = (matchedAssign.log||[]).slice().reverse().find(lg=>lg.status==='sale');
-    const saleDate = saleLog ? new Date(saleLog.timestamp) : new Date(matchedAssign.assignedAt);
-    if(team==='kitchen'){
-      if(matchedAssign.postSaleStage==='completed'){
-        const punchLog = (matchedAssign.postSaleLog||[]).find(pl=>pl.stage==='punch_order');
-        const baseDate = punchLog ? new Date(punchLog.completedAt) : saleDate;
-        const d = new Date(baseDate); d.setDate(d.getDate()+29);
-        last.nextFollowUp = d.toISOString().slice(0,10);
-        updated++;
-      } else {
-        l.receptionLog.pop();
-        removed++;
-      }
-    } else {
-      const d = new Date(saleDate);
-      if(team==='windows') d.setMonth(d.getMonth()+1);
-      else d.setDate(d.getDate()+15);
-      last.nextFollowUp = d.toISOString().slice(0,10);
-      updated++;
-    }
-  });
-  return {updated, removed};
-}
 function bindManageLoginsHandlers(){
-  const migrateToV2Btn = document.getElementById('migrateToV2Btn');
-  if(migrateToV2Btn){
-    migrateToV2Btn.addEventListener('click', async ()=>{
-      const statusEl = document.getElementById('migrateV2Status');
-      if(!confirm('Migrate every lead to the new storage format now? The old data stays completely untouched as a backup — this only adds new documents, nothing gets deleted.')) return;
-      migrateToV2Btn.disabled = true;
-      statusEl.textContent = 'Reading current leads...';
-      let oldLeads;
-      try{
-        const oldDoc = await db.collection('shbv_kv').doc('leads-data').get();
-        oldLeads = oldDoc.exists ? JSON.parse(oldDoc.data().value) : [];
-      }catch(e){
-        console.error('Migration read step failed', e);
-        statusEl.textContent = `Failed while reading current data — ${e.code||''} ${e.message||e}`;
-        migrateToV2Btn.disabled = false;
-        return;
-      }
-      if(!oldLeads.length){
-        statusEl.textContent = 'No leads found to migrate — nothing to do.';
-        migrateToV2Btn.disabled = false;
-        return;
-      }
-      statusEl.textContent = `Read ${oldLeads.length} leads. Writing into new storage...`;
-      try{
-        const CHUNK = 450; // Firestore batch write limit is 500 operations
-        for(let i=0; i<oldLeads.length; i+=CHUNK){
-          const chunk = oldLeads.slice(i, i+CHUNK);
-          const batch = db.batch();
-          chunk.forEach(l=> batch.set(db.collection('shbv_kv').doc(LEADS_V2_PREFIX + l.id), l));
-          await batch.commit();
-          statusEl.textContent = `Writing into new storage... ${Math.min(i+CHUNK, oldLeads.length)}/${oldLeads.length}`;
-        }
-      }catch(e){
-        console.error('Migration write step failed', e);
-        statusEl.textContent = `Read ${oldLeads.length} leads OK, but FAILED while writing into new storage — ${e.code||''} ${e.message||e}. Nothing was deleted, safe to try again.`;
-        migrateToV2Btn.disabled = false;
-        return;
-      }
-      // Verify: re-read what we just wrote and confirm the count matches exactly
-      // before switching the app over — never flip to the new format on faith.
-      statusEl.textContent = 'Verifying...';
-      try{
-        const verifySnap = await leadsV2Query().get();
-        if(verifySnap.size !== oldLeads.length){
-          statusEl.textContent = `⚠️ Wrote ${oldLeads.length} but only found ${verifySnap.size} on verification — NOT switching over. Nothing was deleted from the old data. Tell your admin.`;
-          migrateToV2Btn.disabled = false;
-          return;
-        }
-      }catch(e){
-        statusEl.textContent = `Wrote the data but verification failed — ${e.code||''} ${e.message||e}. Not switching over yet, safe to try again.`;
-        migrateToV2Btn.disabled = false;
-        return;
-      }
-      USING_LEADS_V2 = true;
-      updateLeadsSyncedSnapshot();
-      subscribeToLiveUpdates();
-      statusEl.textContent = `✓ Done — ${oldLeads.length} leads verified and migrated. Now running on the new storage format.`;
-      toast(`Migration complete — ${oldLeads.length} leads`);
-      renderApp();
-    });
-  }
-  const backfillCrossSellBtn = document.getElementById('backfillCrossSellBtn');
-  if(backfillCrossSellBtn){
-    backfillCrossSellBtn.addEventListener('click', async ()=>{
-      const statusEl = document.getElementById('backfillCrossSellStatus');
-      if(!confirm('Run the cross-sell call backfill across every walk-in lead in the system? Any call already due lands on tomorrow as one batch.')) return;
-      backfillCrossSellBtn.disabled = true;
-      statusEl.textContent = 'Working through every lead...';
-      const generated = generateDueCrossSellCalls(true);
-      if(generated===0){
-        statusEl.textContent = 'Nothing to generate — every qualifying lead is already fully covered.';
-        backfillCrossSellBtn.disabled = false;
-        return;
-      }
-      await saveLeads(LEADS);
-      statusEl.textContent = `✓ Done — ${generated} cross-sell call${generated===1?'':'s'} scheduled. Overdue ones landed on tomorrow; future ones kept their real date.`;
-      toast(`${generated} cross-sell call${generated===1?'':'s'} generated`);
-      backfillCrossSellBtn.disabled = false;
-    });
-  }
-  const checkCrossSellHealthBtn = document.getElementById('checkCrossSellHealthBtn');
-  if(checkCrossSellHealthBtn){
-    checkCrossSellHealthBtn.addEventListener('click', ()=>{
-      const statusEl = document.getElementById('crossSellHealthStatus');
-      const r = auditCrossSellSystem();
-      statusEl.innerHTML = `
-        <div class="lead-meta">Not yet referred anywhere: <b>${r.notYetReferred}</b> (not applicable yet)</div>
-        <div class="lead-meta">Fully addressed, nothing left needed: <b>${r.fullyAddressed}</b></div>
-        <div class="lead-meta">Still waiting on a future checkpoint: <b>${r.waiting}</b></div>
-        <div class="lead-meta">Call currently sitting in Reception's queue right now: <b>${r.currentlyInQueue}</b></div>
-        <div class="lead-meta">Call generated previously, already resolved: <b>${r.historicallyGenerated}</b></div>
-        <div class="lead-meta" style="margin-top:8px;font-weight:700;color:${r.stuck.length?'var(--bad)':'var(--ok)'};">
-          Due but never generated (should be 0): ${r.stuck.length}
-        </div>
-        ${r.stuck.length ? `<div style="margin-top:8px;">${r.stuck.map(s=>`<div class="lead-meta">⚠ ${esc(s.lead.name)} (${esc(s.lead.phone)}) — ${Object.entries(s.schedule.checkpoints).filter(([slot])=>!(s.lead.crossSellAutoCalled||[]).includes(slot) && s.schedule.checkpoints[slot]<=todayStr()).map(([slot,date])=>`${crossSellSlotLabel(slot)} was due ${fmtDate(date)}`).join(', ')}</div>`).join('')}</div>` : ''}
-      `;
-    });
-  }
-  const fixDigitalPhonesBtn = document.getElementById('fixDigitalPhonesBtn');
-  if(fixDigitalPhonesBtn){
-    fixDigitalPhonesBtn.addEventListener('click', async ()=>{
-      const statusEl = document.getElementById('fixDigitalPhonesStatus');
-      if(!confirm('Strip the redundant leading "91" from digital-import lead phone numbers? Only touches that specific import batch.')) return;
-      fixDigitalPhonesBtn.disabled = true;
-      const fixed = fixDigitalLeadPhoneNumbers();
-      if(fixed===0){
-        statusEl.textContent = 'Nothing to fix — every digital-import phone number is already correct.';
-        fixDigitalPhonesBtn.disabled = false;
-        return;
-      }
-      await saveLeads(LEADS);
-      statusEl.textContent = `✓ Done — ${fixed} phone number${fixed===1?'':'s'} corrected.`;
-      toast(`${fixed} phone number${fixed===1?'':'s'} fixed`);
-      fixDigitalPhonesBtn.disabled = false;
-    });
-  }
-  const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');
-  if(fixFeedbackDatesBtn){
-    fixFeedbackDatesBtn.addEventListener('click', async ()=>{
-      if(!confirm('Recalculate all pending feedback call dates using the correct per-team rules? This only touches ones not yet called.')) return;
-      const {updated, removed} = correctExistingFeedbackCallDates();
-      if(updated===0 && removed===0){ toast('Nothing needed correcting'); return; }
-      await saveLeads(LEADS);
-      toast(`Fixed ${updated} date${updated===1?'':'s'}${removed?`, removed ${removed} not-yet-due Kitchen call${removed===1?'':'s'}`:''}`);
-      renderApp();
-    });
-  }
   const newLoginDeptSel = document.getElementById('newLoginDept');
   const newLoginAssistantWrap = document.getElementById('newLoginAssistantWrap');
   function toggleAssistantWrap(){

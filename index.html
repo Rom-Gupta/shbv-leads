@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916110134';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916110716';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3716,6 +3716,38 @@ function statBox(count, label, key, activeKey){
 function getCustomReportDate(){ if(!CUSTOM_REPORT_DATE) CUSTOM_REPORT_DATE = todayStr(); return CUSTOM_REPORT_DATE; }
 function getWeekRange(){ if(!WEEK_RANGE) WEEK_RANGE = defaultWeekRange(); return WEEK_RANGE; }
 
+// Tallies every feedback and cross-sell call actually RESOLVED within a date
+// range — not scheduled, resolved. Only counts entries that carry a kind tag
+// (the fix that made this possible), so any resolution logged before that fix
+// went in won't show up here; everything from here forward will.
+function computeAutoCallStats(fromDate, toDate){
+  let feedbackSale=0, feedbackLost=0, crossDone=0, crossNoNeed=0;
+  LEADS.forEach(l=>{
+    (l.receptionLog||[]).forEach(entry=>{
+      if(!entry.kind || entry.status==='followup') return; // no tag, or still pending — not a resolution
+      if(!inRange(entry.timestamp, fromDate, toDate)) return;
+      if(entry.kind==='feedback-sale') feedbackSale++;
+      else if(entry.kind==='feedback-lost') feedbackLost++;
+      else if(entry.kind==='cross-sell-auto'){
+        if(entry.outcome==='noneed') crossNoNeed++;
+        else crossDone++;
+      }
+    });
+  });
+  return {feedbackSale, feedbackLost, crossDone, crossNoNeed, crossPending: pendingCrossSellCallLeads().length};
+}
+function autoCallScorecardHtml(fromDate, toDate){
+  const s = computeAutoCallStats(fromDate, toDate);
+  const feedbackTotal = s.feedbackSale + s.feedbackLost;
+  const crossResolved = s.crossDone + s.crossNoNeed;
+  return `
+  <div class="section-title" style="margin-top:20px;">Automated Call Activity</div>
+  <div class="card">
+    <div class="lead-meta" style="margin-bottom:6px;"><b>Feedback Calls:</b> ${feedbackTotal} resolved (${s.feedbackSale} post-sale, ${s.feedbackLost} post-lost)</div>
+    <div class="lead-meta"><b>Cross-sell Calls:</b> ${crossResolved} resolved (${s.crossDone} referred/logged, ${s.crossNoNeed} marked No Need) · <b>${s.crossPending}</b> still pending in queue right now</div>
+  </div>`;
+}
+
 function inRange(iso, start, end){ const d = iso.slice(0,10); return d>=start && d<=end; }
 
 function computeWeeklyStats(start, end){
@@ -3806,6 +3838,7 @@ function viewWeeklyReport(){
       }).join('')}
     </table>
   </div>
+  ${autoCallScorecardHtml(range.start, range.end)}
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
@@ -3861,6 +3894,7 @@ function viewMonthlyReport(){
       }).join('')}
     </table>
   </div>
+  ${autoCallScorecardHtml(range.start, range.end)}
   <div class="section-title" style="margin-top:18px;">By Salesperson</div>
   `;
   const salesEntries = Object.values(stats.bySales).sort((a,b)=> a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
@@ -4684,6 +4718,8 @@ function viewReports(){
           <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
         </div>
       </div>`).join('')}
+
+  ${autoCallScorecardHtml(today, today)}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Due Today (Pending + Already Called)</div>
   <select id="followupTodayDeptFilter" style="margin-bottom:10px;">
@@ -6161,11 +6197,15 @@ function bindModalHandlers(lead){
       const remarks = document.getElementById('feedbackRemarks').value.trim();
       if(!remarks){ toast('Add a remark'); return; }
       if(!lead.receptionLog) lead.receptionLog=[];
-      // status:'no-followup' resolves it off Reception's queue immediately — a
-      // feedback call is a one-off check-in, not something to keep scheduling.
+      // Carry the kind (feedback-sale / feedback-lost) forward onto the
+      // resolution entry too — otherwise there'd be no reliable way to count
+      // "how many feedback calls were actually resolved this week," since the
+      // only entry with a kind tag would be the pending one that's about to
+      // disappear from the queue.
+      const pendingKind = lead.receptionLog.length ? lead.receptionLog[lead.receptionLog.length-1].kind : null;
       lead.receptionLog.push({
         timestamp:new Date().toISOString(), author:SESSION.name, remarks,
-        status:'no-followup', nextFollowUp:null
+        status:'no-followup', nextFollowUp:null, kind:pendingKind
       });
       await saveLeads(LEADS);
       toast('Feedback logged');
@@ -6199,7 +6239,7 @@ function bindModalHandlers(lead){
         if(!lead.receptionLog) lead.receptionLog=[];
         lead.receptionLog.push({
           timestamp:new Date().toISOString(), author:SESSION.name, remarks,
-          status:'no-followup', nextFollowUp:null
+          status:'no-followup', nextFollowUp:null, kind:'cross-sell-auto', outcome:'noneed', slot
         });
         // Actually record the dismissal — a combined Windows/Kitchen slot
         // marks both real teams, so a manual cross-sell check elsewhere
@@ -6219,7 +6259,7 @@ function bindModalHandlers(lead){
         // this note doesn't auto-refer anything on its own.
         lead.receptionLog.push({
           timestamp:new Date().toISOString(), author:SESSION.name, remarks,
-          status:'no-followup', nextFollowUp:null
+          status:'no-followup', nextFollowUp:null, kind:'cross-sell-auto', outcome:'done', slot
         });
         await saveLeads(LEADS);
         toast('Cross-sell call logged');

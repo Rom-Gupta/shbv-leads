@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260911110656';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916053452';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3447,6 +3447,15 @@ function viewManageLogins(){
     <button class="btn btn-brass btn-full" id="fixFeedbackDatesBtn">Run Correction</button>
   </div>
 
+  <div class="card" style="border-color:var(--brass);">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Digital Lead Phone Numbers</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">
+      One-time correction: the digital-lead import stored some phone numbers as the full 12-digit "91XXXXXXXXXX" instead of the plain 10-digit number — the app already shows "+91" on its own everywhere a number is displayed, so these were showing up doubled. Running this strips the redundant leading "91" wherever it's still there. Only touches leads from that specific import (matched by Source: Digital Ad plus the "Digital lead import —" marker in their remarks) — every other lead is left completely untouched. Safe to run more than once; already-correct numbers are skipped.
+    </div>
+    <button class="btn btn-brass btn-full" id="fixDigitalPhonesBtn">Run Correction</button>
+    <div id="fixDigitalPhonesStatus" class="lead-meta" style="margin-top:8px;"></div>
+  </div>
+
   <div class="card">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
     <label>Department</label>
@@ -3531,6 +3540,27 @@ function viewManageLogins(){
   `;
 }
 
+// One-time fix for the digital-lead import, which stored some phone numbers
+// as the full 12-digit "91XXXXXXXXXX" instead of the plain 10-digit number —
+// the app already shows "+91" on its own everywhere a number is displayed.
+// Scoped tightly to that specific import batch (Source: Digital Ad + the
+// "Digital lead import —" marker in remarks) so it can never touch any other
+// lead's phone number, even another genuine Digital Ad lead added separately.
+function fixDigitalLeadPhoneNumbers(){
+  let fixed = 0;
+  LEADS.forEach(l=>{
+    if(l.source!=='Digital Ad') return;
+    const isImportBatch = (l.receptionLog||[]).some(entry=> entry.remarks && entry.remarks.includes('Digital lead import —'));
+    if(!isImportBatch) return;
+    if(!l.phone) return;
+    const digitsOnly = l.phone.replace(/\D/g,'');
+    if(digitsOnly.length===12 && digitsOnly.startsWith('91')){
+      l.phone = digitsOnly.slice(2);
+      fixed++;
+    }
+  });
+  return fixed;
+}
 // One-time fix for feedback calls scheduled before the per-team timing rules
 // existed. Only touches entries still pending (last log, status 'followup',
 // kind 'feedback-sale') — never rewrites anything already logged/resolved.
@@ -3670,6 +3700,24 @@ function bindManageLoginsHandlers(){
         </div>
         ${r.stuck.length ? `<div style="margin-top:8px;">${r.stuck.map(s=>`<div class="lead-meta">⚠ ${esc(s.lead.name)} (${esc(s.lead.phone)}) — ${Object.entries(s.schedule.checkpoints).filter(([slot])=>!(s.lead.crossSellAutoCalled||[]).includes(slot) && s.schedule.checkpoints[slot]<=todayStr()).map(([slot,date])=>`${crossSellSlotLabel(slot)} was due ${fmtDate(date)}`).join(', ')}</div>`).join('')}</div>` : ''}
       `;
+    });
+  }
+  const fixDigitalPhonesBtn = document.getElementById('fixDigitalPhonesBtn');
+  if(fixDigitalPhonesBtn){
+    fixDigitalPhonesBtn.addEventListener('click', async ()=>{
+      const statusEl = document.getElementById('fixDigitalPhonesStatus');
+      if(!confirm('Strip the redundant leading "91" from digital-import lead phone numbers? Only touches that specific import batch.')) return;
+      fixDigitalPhonesBtn.disabled = true;
+      const fixed = fixDigitalLeadPhoneNumbers();
+      if(fixed===0){
+        statusEl.textContent = 'Nothing to fix — every digital-import phone number is already correct.';
+        fixDigitalPhonesBtn.disabled = false;
+        return;
+      }
+      await saveLeads(LEADS);
+      statusEl.textContent = `✓ Done — ${fixed} phone number${fixed===1?'':'s'} corrected.`;
+      toast(`${fixed} phone number${fixed===1?'':'s'} fixed`);
+      fixDigitalPhonesBtn.disabled = false;
     });
   }
   const fixFeedbackDatesBtn = document.getElementById('fixFeedbackDatesBtn');

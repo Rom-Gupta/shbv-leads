@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916103000';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916103932';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1679,7 +1679,7 @@ function tabsFor(role){
     {id:'analytics', label:'Analytics',
       sub:[{id:'daily', label:'Daily'}, {id:'weekly', label:'Weekly'}, {id:'monthly', label:'Monthly'}]},
     {id:'leads', label:'Leads', badge:()=>crossSellOpportunityLeads().length,
-      sub:[{id:'all', label:'All Leads'}, {id:'activeleads', label:'Active Leads'}, {id:'duetoday', label:'Due Today'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'add', label:'+ New Lead'}]},
+      sub:[{id:'all', label:'All Leads'}, {id:'activeleads', label:'Active Leads'}, {id:'duetoday', label:'Due Today'}, {id:'crosssell', label:'Cross-sell', badge:()=>crossSellOpportunityLeads().length}, {id:'upcoming', label:'Upcoming Follow-up'}, {id:'duplicates', label:'Duplicates', badge:()=>findDuplicateLeadGroups().length}, {id:'add', label:'+ New Lead'}]},
     {id:'connections', label:'Connections', badge:()=>myConnectionsDueTodayCount(),
       sub:[{id:'add', label:'Add Connection'}, {id:'my', label:'My Connections'}, {id:'all', label:'All Connections'}, {id:'followup', label:'Follow-up', badge:()=>myConnectionsDueTodayCount()}, {id:'upcomingfollowup', label:'Upcoming Follow-up'}, {id:'upcomingmeetings', label:'Upcoming Meetings'}, {id:'sentreception', label:'Sent to Reception', badge:()=>CONNECTIONS.filter(c=>c.assignedToReception && c.assignedByHead===SESSION.name).length}]},
     {id:'reports', label:'Reports',
@@ -1775,6 +1775,7 @@ async function renderApp(){
       if(ACTIVE_SUBTAB==='crosssell') area.innerHTML = viewCrossSell();
       else if(ACTIVE_SUBTAB==='activeleads') area.innerHTML = viewHeadActiveLeads();
       else if(ACTIVE_SUBTAB==='duetoday') area.innerHTML = viewHeadDueToday();
+      else if(ACTIVE_SUBTAB==='duplicates') area.innerHTML = viewDuplicateLeads();
       else if(ACTIVE_SUBTAB==='upcoming') area.innerHTML = viewLeadsUpcomingFollowup();
       else if(ACTIVE_SUBTAB==='add') area.innerHTML = viewAddLead();
       else area.innerHTML = viewAllLeads(true);
@@ -2037,6 +2038,41 @@ function viewHeadDueToday(){
   </div>
   <div id="dueTodayResults">${renderHeadDueTodayResults('')}</div>
   `;
+}
+// Groups every lead by phone number (using the same canonical 10-digit form
+// as the phone-cleanup tools, not just raw digit-stripping — so leads with
+// slightly different stored formats for the same real number still match).
+// Only returns groups with more than one lead — those are the actual
+// duplicates worth reviewing.
+function findDuplicateLeadGroups(){
+  const groups = new Map();
+  LEADS.forEach(l=>{
+    const canon = toBare10Phone(l.phone) || normalizePhone(l.phone);
+    if(!canon) return;
+    if(!groups.has(canon)) groups.set(canon, []);
+    groups.get(canon).push(l);
+  });
+  return [...groups.entries()]
+    .filter(([,leads])=>leads.length>1)
+    .map(([phone,leads])=>({phone, leads: leads.sort((a,b)=>a.createdAt.localeCompare(b.createdAt))}));
+}
+function viewDuplicateLeads(){
+  const groups = findDuplicateLeadGroups();
+  if(!groups.length) return `<div class="empty">No duplicate phone numbers found — every lead has a unique number.</div>`;
+  return resultCountLine(groups.length) + groups.map(g=>`
+    <div class="card" style="border-color:var(--bad);">
+      <div class="lead-meta" style="margin-bottom:8px;font-weight:600;">${groups.indexOf(g)+1}. Same number, ${g.leads.length} leads: ${displayPhone(g.phone)}</div>
+      ${g.leads.map(l=>`
+        <div style="padding:10px 0;border-top:1px solid var(--line);">
+          <div class="lead-name">${esc(l.name)}</div>
+          <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)} by <b>${esc(l.createdBy||'—')}</b></div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('') || '<span class="lead-meta">Not yet referred to sales</span>'}</div>
+          <div class="row-btns" style="margin-top:8px;">
+            <button class="btn btn-ghost btn-sm" data-open-lead="${l.id}">View Full Detail</button>
+            <button class="btn btn-sm deleteLeadCardBtn" style="background:var(--bad);color:#fff;" data-lead-id="${l.id}" data-lead-name="${esc(l.name)}">Delete This One</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
 }
 function viewHeadActiveLeads(){
   // Same fix as All Leads: merge the master marketing-persons list with names

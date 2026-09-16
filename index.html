@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916055025';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916055228';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -2133,9 +2133,16 @@ function leadCardReception(l){
   const alreadyAssigned = leadHasAssignments(l);
   let statusBadge = `<span class="badge badge-pending">New</span>`;
   if(last){
-    if(last.status==='followup') statusBadge = isDueToday(last.nextFollowUp)
-      ? `<span class="badge badge-followup">Follow-up due</span>`
-      : `<span class="badge badge-followup">Follow-up ${fmtDate(last.nextFollowUp)}</span>`;
+    if(last.status==='followup'){
+      if(!isDueToday(last.nextFollowUp)){
+        statusBadge = `<span class="badge badge-followup">Follow-up ${fmtDate(last.nextFollowUp)}</span>`;
+      } else {
+        const overdueDays = daysSince(last.nextFollowUp);
+        statusBadge = overdueDays>0
+          ? `<span class="badge" style="background:var(--bad);color:#fff;">${overdueDays} day${overdueDays===1?'':'s'} OVERDUE</span>`
+          : `<span class="badge badge-followup">Follow-up due</span>`;
+      }
+    }
     else if(last.status==='lost') statusBadge = `<span class="badge badge-lost">Loose Lead</span>`;
   }
   let feedbackBanner = '';

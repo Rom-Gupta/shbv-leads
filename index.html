@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916053452';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916053645';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3450,7 +3450,7 @@ function viewManageLogins(){
   <div class="card" style="border-color:var(--brass);">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Fix Digital Lead Phone Numbers</h3>
     <div class="lead-meta" style="margin-bottom:10px;">
-      One-time correction: the digital-lead import stored some phone numbers as the full 12-digit "91XXXXXXXXXX" instead of the plain 10-digit number — the app already shows "+91" on its own everywhere a number is displayed, so these were showing up doubled. Running this strips the redundant leading "91" wherever it's still there. Only touches leads from that specific import (matched by Source: Digital Ad plus the "Digital lead import —" marker in their remarks) — every other lead is left completely untouched. Safe to run more than once; already-correct numbers are skipped.
+      One-time correction: the digital-lead import stored some phone numbers as the full 12-digit "91XXXXXXXXXX" (or an 11-digit "0XXXXXXXXXX") instead of the plain 10-digit number — the app already shows "+91" on its own everywhere a number is displayed, so these were showing up doubled. Running this strips the redundant prefix wherever it's still there. Only touches leads from that specific import (matched by Source: Digital Ad plus the "Digital lead import" marker on their first call log entry) — every other lead is left completely untouched. Safe to run more than once; already-correct numbers are skipped.
     </div>
     <button class="btn btn-brass btn-full" id="fixDigitalPhonesBtn">Run Correction</button>
     <div id="fixDigitalPhonesStatus" class="lead-meta" style="margin-top:8px;"></div>
@@ -3541,21 +3541,28 @@ function viewManageLogins(){
 }
 
 // One-time fix for the digital-lead import, which stored some phone numbers
-// as the full 12-digit "91XXXXXXXXXX" instead of the plain 10-digit number —
-// the app already shows "+91" on its own everywhere a number is displayed.
-// Scoped tightly to that specific import batch (Source: Digital Ad + the
-// "Digital lead import —" marker in remarks) so it can never touch any other
-// lead's phone number, even another genuine Digital Ad lead added separately.
+// as the full 12-digit "91XXXXXXXXXX" (or an 11-digit "0XXXXXXXXXX") instead
+// of the plain 10-digit number — the app already shows "+91" on its own
+// everywhere a number is displayed. Scoped tightly to that specific import
+// batch (Source: Digital Ad + the "Digital lead import" marker on the FIRST
+// reception log entry specifically — matching exactly how that import script
+// wrote it) so it can never touch any other lead's phone number, even
+// another genuine Digital Ad lead added separately by Reception.
+function toBare10Phone(phone){
+  let digits = (phone || '').replace(/\D/g, '');
+  if(digits.length===12 && digits.startsWith('91')) digits = digits.slice(2);
+  else if(digits.length===11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+}
 function fixDigitalLeadPhoneNumbers(){
   let fixed = 0;
   LEADS.forEach(l=>{
-    if(l.source!=='Digital Ad') return;
-    const isImportBatch = (l.receptionLog||[]).some(entry=> entry.remarks && entry.remarks.includes('Digital lead import —'));
+    const firstLog = l.receptionLog && l.receptionLog[0];
+    const isImportBatch = l.source==='Digital Ad' && firstLog && firstLog.remarks && firstLog.remarks.startsWith('Digital lead import');
     if(!isImportBatch) return;
-    if(!l.phone) return;
-    const digitsOnly = l.phone.replace(/\D/g,'');
-    if(digitsOnly.length===12 && digitsOnly.startsWith('91')){
-      l.phone = digitsOnly.slice(2);
+    const clean = toBare10Phone(l.phone);
+    if(clean !== l.phone){
+      l.phone = clean;
       fixed++;
     }
   });

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916112555';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916113141';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3716,18 +3716,38 @@ function statBox(count, label, key, activeKey){
 function getCustomReportDate(){ if(!CUSTOM_REPORT_DATE) CUSTOM_REPORT_DATE = todayStr(); return CUSTOM_REPORT_DATE; }
 function getWeekRange(){ if(!WEEK_RANGE) WEEK_RANGE = defaultWeekRange(); return WEEK_RANGE; }
 
-// Two different counts, with genuinely different reliability:
-// "Scheduled" — when a feedback/cross-sell call was first generated. This
-// works for the FULL history, since the auto-scheduling entry always has
-// distinctive text ("Feedback Call (SALE DONE)...", "Cross-sell Call —...")
-// regardless of whether it also carries a kind tag.
-// "Resolved with outcome" — what actually happened on the call (happy/lost,
-// referred/No Need). This is only reliable from when resolution entries
-// started carrying their kind forward — older resolutions have no reliable
-// marker at all, since Reception's own typed remarks carry no fixed pattern.
+// Reconstructs actual resolutions by walking a lead's call history IN ORDER —
+// whenever an auto-scheduled call (kind set, status 'followup') is followed
+// later by a resolution (status 'no-followup'), that resolution gets tagged
+// with the kind it was actually resolving, even if the resolution entry
+// itself never explicitly carried one (i.e. everything logged before the
+// outcome-tracking fix). This makes the feedback-call breakdown fully
+// reliable for the whole history, since sale-vs-lost is fixed by which call
+// was scheduled in the first place. The cross-sell TOTAL is fully reliable
+// the same way — only the referred-vs-No-Need split stays limited to
+// whatever explicitly has an outcome tag, since that distinction was never
+// recorded anywhere else before the fix.
+function inferHistoricalResolutions(l){
+  const results = [];
+  let pendingKind = null;
+  (l.receptionLog||[]).forEach(entry=>{
+    if(entry.status==='followup'){
+      if(entry.kind==='feedback-sale' || entry.kind==='feedback-lost' || entry.kind==='cross-sell-auto') pendingKind = entry.kind;
+      return;
+    }
+    if(entry.status==='no-followup' && pendingKind){
+      results.push({timestamp: entry.timestamp, kind: entry.kind || pendingKind, outcome: entry.outcome || null});
+      pendingKind = null;
+    }
+  });
+  return results;
+}
+// "Scheduled" — when a feedback/cross-sell call was first generated. Reliable
+// for the FULL history, since the auto-scheduling entry always has
+// distinctive text regardless of whether it also carries a kind tag.
 function computeAutoCallStats(fromDate, toDate){
   let feedbackScheduled=0, crossScheduled=0;
-  let feedbackSale=0, feedbackLost=0, crossDone=0, crossNoNeed=0;
+  let feedbackSale=0, feedbackLost=0, crossDone=0, crossNoNeed=0, crossOutcomeUnknown=0;
   LEADS.forEach(l=>{
     (l.receptionLog||[]).forEach(entry=>{
       if(!inRange(entry.timestamp, fromDate, toDate)) return;
@@ -3735,28 +3755,31 @@ function computeAutoCallStats(fromDate, toDate){
         if(entry.remarks.startsWith('Feedback Call')) feedbackScheduled++;
         else if(entry.remarks.startsWith('Cross-sell Call')) crossScheduled++;
       }
-      if(!entry.kind || entry.status==='followup') return; // no tag, or still pending — not a resolution
-      if(entry.kind==='feedback-sale') feedbackSale++;
-      else if(entry.kind==='feedback-lost') feedbackLost++;
-      else if(entry.kind==='cross-sell-auto'){
-        if(entry.outcome==='noneed') crossNoNeed++;
-        else crossDone++;
+    });
+    inferHistoricalResolutions(l).forEach(r=>{
+      if(!inRange(r.timestamp, fromDate, toDate)) return;
+      if(r.kind==='feedback-sale') feedbackSale++;
+      else if(r.kind==='feedback-lost') feedbackLost++;
+      else if(r.kind==='cross-sell-auto'){
+        if(r.outcome==='noneed') crossNoNeed++;
+        else if(r.outcome==='done') crossDone++;
+        else crossOutcomeUnknown++; // resolved, but pre-fix — genuinely can't tell done vs no-need
       }
     });
   });
-  return {feedbackScheduled, crossScheduled, feedbackSale, feedbackLost, crossDone, crossNoNeed, crossPending: pendingCrossSellCallLeads().length};
+  return {feedbackScheduled, crossScheduled, feedbackSale, feedbackLost, crossDone, crossNoNeed, crossOutcomeUnknown, crossPending: pendingCrossSellCallLeads().length};
 }
 function autoCallScorecardHtml(fromDate, toDate){
   const s = computeAutoCallStats(fromDate, toDate);
   const feedbackResolved = s.feedbackSale + s.feedbackLost;
-  const crossResolved = s.crossDone + s.crossNoNeed;
+  const crossResolved = s.crossDone + s.crossNoNeed + s.crossOutcomeUnknown;
   return `
   <div class="section-title" style="margin-top:20px;">Automated Call Activity</div>
   <div class="card">
     <div class="lead-meta" style="margin-bottom:6px;"><b>Feedback Calls scheduled:</b> ${s.feedbackScheduled}</div>
     <div class="lead-meta"><b>Cross-sell Calls scheduled:</b> ${s.crossScheduled} · <b>${s.crossPending}</b> still pending in queue right now</div>
-    <div class="lead-meta" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);"><b>Resolved with outcome:</b> ${feedbackResolved} feedback (${s.feedbackSale} post-sale, ${s.feedbackLost} post-lost), ${crossResolved} cross-sell (${s.crossDone} referred/logged, ${s.crossNoNeed} marked No Need)</div>
-    <div class="lead-meta" style="margin-top:4px;font-style:italic;">Resolved counts are only reliable from when outcome-tracking was added — older resolutions won't show up here, even though the scheduled count above covers the full history.</div>
+    <div class="lead-meta" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);"><b>Feedback resolved:</b> ${feedbackResolved} (${s.feedbackSale} post-sale, ${s.feedbackLost} post-lost)</div>
+    <div class="lead-meta"><b>Cross-sell resolved:</b> ${crossResolved} (${s.crossDone} referred/logged, ${s.crossNoNeed} marked No Need${s.crossOutcomeUnknown?`, ${s.crossOutcomeUnknown} outcome not recorded — resolved before No Need tracking existed`:''})</div>
   </div>`;
 }
 

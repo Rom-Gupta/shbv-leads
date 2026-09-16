@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916053645';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916055025';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4577,12 +4577,12 @@ function pendingDueTodayGroups(){
   LEADS.forEach(l=>{
     if(l.receptionLog && l.receptionLog.length){
       const last = l.receptionLog[l.receptionLog.length-1];
-      if(last.status==='followup' && last.nextFollowUp===today && last.timestamp.slice(0,10)!==today){
+      if(last.status==='followup' && isDueToday(last.nextFollowUp) && last.timestamp.slice(0,10)!==today){
         push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp});
       }
     }
     (l.assignments||[]).forEach(a=>{
-      if(a.nextFollowUp===today && a.status!=='sale' && a.status!=='lost'){
+      if(isDueToday(a.nextFollowUp) && a.status!=='sale' && a.status!=='lost'){
         const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
         if(!lastLog || lastLog.timestamp.slice(0,10)!==today){
           push(l, {team:TEAM_LABELS[a.team], salesperson:a.salesperson, referredBy:a.assignedBy, author:lastLog?lastLog.author:a.assignedBy, remarks:lastLog?lastLog.remarks:'Call due today — not yet made', status:'pending-due', time:lastLog?lastLog.timestamp:a.assignedAt, nextFollowUp:a.nextFollowUp});

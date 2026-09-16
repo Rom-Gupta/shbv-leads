@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916112025';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260916112555';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4419,13 +4419,14 @@ function pendingDueTodayGroups(){
 }
 // Combines both: calls actually made/logged today, AND calls due today that are
 // still sitting pending — merged per lead so Head sees the full picture at once.
-// "Logged" includes both a genuine follow-up (status: followup) AND a Lost mark
-// (status: lost) — Lost is still a real call that happened today, and leaving
-// it out understated how many calls were actually made.
+// "Logged" includes a genuine follow-up (status: followup), a Lost mark
+// (status: lost), AND a resolved feedback/cross-sell call (status:
+// no-followup) — all three represent a real call that happened today, and
+// leaving any of them out understated how many calls were actually made.
 function buildFollowupTodayGroups(){
   const groups = groupTodayActivityByLead();
   const logged = groups
-    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup' || e.status==='lost')}))
+    .map(g=>({lead:g.lead, entries:g.entries.filter(e=>e.status==='followup' || e.status==='lost' || e.status==='no-followup')}))
     .filter(g=>g.entries.length);
   const pending = pendingDueTodayGroups();
   const merged = new Map();

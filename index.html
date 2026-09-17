@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260917101834';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260917102830';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1938,7 +1938,7 @@ function crossSellLeadCard(l){
 // team. Reception's "active" means their normal actionable queue (unreferred, or
 // with a pending follow-up on the books). A team's "active" means any assignment
 // that hasn't resolved yet (not Sale Done, not Lost).
-function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, kitchenStage){
+function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, kitchenStage, categoryFilter){
   if(!filterVal) return `<div class="empty">Select a filter above to see active leads.</div>`;
   const isKitchenFilter = filterVal.startsWith('sales:kitchen');
   if(isKitchenFilter && kitchenStage==='donelead'){
@@ -1975,6 +1975,7 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
   }
   if(sourceFilter) list = list.filter(l=> l.source===sourceFilter);
   if(sourceFilter==='Physical Marketing' && marketingFilter) list = list.filter(l=> l.marketingPersonName===marketingFilter);
+  if(categoryFilter) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
@@ -2091,6 +2092,12 @@ function viewHeadActiveLeads(){
       ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
     </select>
   </div>
+  <select id="activeLeadsCategoryFilter" style="margin-bottom:10px;">
+    <option value="">Category: All</option>
+    <option value="A">A — High priority</option>
+    <option value="B">B — Medium priority</option>
+    <option value="C">C — Low priority</option>
+  </select>
   <div id="activeLeadsResults">${renderHeadActiveLeadsResults('')}</div>
   `;
 }
@@ -4057,11 +4064,17 @@ function viewAllLeads(){
       <option value="">All cities</option>
       ${cities.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
     </select>` : ''}
+    <select id="filterCategory">
+      <option value="">Category: All</option>
+      <option value="A">A — High priority</option>
+      <option value="B">B — Medium priority</option>
+      <option value="C">C — Low priority</option>
+    </select>
   </div>
-  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','')}</div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','','')}</div>
   `;
 }
-function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter){
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -4096,11 +4109,14 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
   if(cityFilter){
     list = list.filter(l=> (l.city||'').toLowerCase()===cityFilter.toLowerCase());
   }
+  if(categoryFilter){
+    list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
+  }
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
-function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter){
-  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter);
+function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
+  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -4160,8 +4176,14 @@ function rangeLeadsFilterPanel(prefix, range){
       <option value="">All cities</option>
       ${cities.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
     </select>` : ''}
+    <select id="${prefix}FilterCategory">
+      <option value="">Category: All</option>
+      <option value="A">A — High priority</option>
+      <option value="B">B — Medium priority</option>
+      <option value="C">C — Low priority</option>
+    </select>
   </div>
-  <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '', '', '', '')}</div>
+  <div id="${prefix}AllLeadsResults">${filterLeadsList(rangeLeads, '', '', '', '', '', '', '', '', '', '')}</div>
   `;
 }
 function renderBySalespersonResults(salesEntries, filterVal){
@@ -4242,6 +4264,7 @@ function bindRangeLeadsFilters(prefix, range){
   const unreferred = document.getElementById(prefix+'FilterUnreferred');
   const sourceSel = document.getElementById(prefix+'FilterSource');
   const citySel = document.getElementById(prefix+'FilterCity');
+  const categorySel = document.getElementById(prefix+'FilterCategory');
   if(!search && !team && !status && !sales) return;
   function repopulateSalesFilterR(teamVal){
     if(!sales) return;
@@ -4253,7 +4276,7 @@ function bindRangeLeadsFilters(prefix, range){
   if(team) repopulateSalesFilterR(team.value);
   function refresh(){
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
-      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'');
+      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'', categorySel?categorySel.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -4268,6 +4291,7 @@ function bindRangeLeadsFilters(prefix, range){
   if(unreferred) unreferred.addEventListener('change', refresh);
   if(sourceSel) sourceSel.addEventListener('change', refresh);
   if(citySel) citySel.addEventListener('change', refresh);
+  if(categorySel) categorySel.addEventListener('change', refresh);
 }
 
 function leadCardHead(l){
@@ -4734,7 +4758,7 @@ function viewCustomDateReport(){
   ${visitGroups.length===0 ? `<div class="empty">${CUSTOM_STAT_FILTER ? 'Nothing matches this filter.' : 'No activity logged on this date.'}</div>` :
     visitGroups.map(g=>`
       <div class="card">
-        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-name">${esc(g.lead.name)}${categoryBadgesFor(g.lead.assignments)}</div>
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
         ${g.entries.map(e=>`
           <div class="log-entry">
@@ -4804,7 +4828,7 @@ function viewReports(){
   ${visitGroups.length===0 ? `<div class="empty">${DAILY_STAT_FILTER ? 'Nothing matches this filter.' : 'No visits logged yet today.'}</div>` :
     visitGroups.map(g=>`
       <div class="card">
-        <div class="lead-name">${esc(g.lead.name)}</div>
+        <div class="lead-name">${esc(g.lead.name)}${categoryBadgesFor(g.lead.assignments)}</div>
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
         ${(g.lead.assignments||[]).filter(a=>a.status==='pending').map(a=>`
           <div class="lead-meta" style="margin-bottom:6px;color:var(--warn);">Referred to <b>${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</b>, still Pending Visit</div>
@@ -5508,6 +5532,7 @@ function bindDynamicHandlers(){
   const activeLeadsSourceFilter = document.getElementById('activeLeadsSourceFilter');
   const activeLeadsMarketingWrap = document.getElementById('activeLeadsMarketingWrap');
   const activeLeadsMarketingFilter = document.getElementById('activeLeadsMarketingFilter');
+  const activeLeadsCategoryFilter = document.getElementById('activeLeadsCategoryFilter');
   function refreshActiveLeads(){
     const dept = activeLeadsDeptFilter.value;
     let filterVal = '';
@@ -5518,7 +5543,8 @@ function bindDynamicHandlers(){
     const sourceVal = activeLeadsSourceFilter ? activeLeadsSourceFilter.value : '';
     const marketingVal = activeLeadsMarketingFilter ? activeLeadsMarketingFilter.value : '';
     const kitchenStage = (dept==='kitchen' && activeLeadsKitchenStageFilter) ? activeLeadsKitchenStageFilter.value : '';
-    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal, kitchenStage);
+    const categoryVal = activeLeadsCategoryFilter ? activeLeadsCategoryFilter.value : '';
+    document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal, kitchenStage, categoryVal);
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -5570,6 +5596,7 @@ function bindDynamicHandlers(){
       refreshActiveLeads();
     });
     activeLeadsMarketingFilter.addEventListener('change', refreshActiveLeads);
+    if(activeLeadsCategoryFilter) activeLeadsCategoryFilter.addEventListener('change', refreshActiveLeads);
   }
 
   const dueTodayDeptFilter = document.getElementById('dueTodayDeptFilter');
@@ -5969,6 +5996,7 @@ function bindDynamicHandlers(){
   const filterUnreferred = document.getElementById('filterUnreferred');
   const filterSource = document.getElementById('filterSource');
   const filterCity = document.getElementById('filterCity');
+  const filterCategory = document.getElementById('filterCategory');
   function repopulateSalesFilter(teamVal){
     if(!filterSales) return;
     const options = teamVal
@@ -5981,7 +6009,7 @@ function bindDynamicHandlers(){
   if(filterTeam) repopulateSalesFilter(filterTeam.value);
   function refreshResults(){
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'');
+      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'', filterCategory?filterCategory.value:'');
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -5996,6 +6024,7 @@ function bindDynamicHandlers(){
   if(filterUnreferred) filterUnreferred.addEventListener('change', refreshResults);
   if(filterSource) filterSource.addEventListener('change', refreshResults);
   if(filterCity) filterCity.addEventListener('change', refreshResults);
+  if(filterCategory) filterCategory.addEventListener('change', refreshResults);
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);

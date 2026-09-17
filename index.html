@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260917101542';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260917101834';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5066,6 +5066,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <span class="team-tag">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
             <span class="badge badge-${a.status}">${statusLabelFor(a)}</span>
+            ${categoryBadgesFor([a])}
             ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
           </div>
         </div>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260917095120';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260917101542';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -838,6 +838,17 @@ const POST_SALE_STAGE_LABELS = {
 };
 const POST_SALE_STAGE_ORDER = ['detailing_2d','ps_revision','electric_plumbing','order_details','punch_order'];
 function statusLabelFor(a){ return STATUS_LABELS[a.status] || a.status; }
+// Bold, color-coded circular badges for whichever assignments have a client
+// category set — meant to sit right next to the customer's name, the first
+// thing anyone's eye goes to on a card, not buried in with other secondary
+// details. A is urgent (red), B is medium (brass), C is muted (grey) — so
+// priority is scannable by color alone, at a glance, across a whole list.
+function categoryBadgesFor(assignments){
+  const colors = {A:'var(--bad)', B:'var(--brass)', C:'#9aa3a1'};
+  return (assignments||[]).filter(a=>a.clientCategory).map(a=>
+    `<span title="${esc(TEAM_LABELS[a.team])}: Category ${a.clientCategory}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:${colors[a.clientCategory]||'var(--brass)'};color:#fff;font-weight:800;font-size:13px;margin-left:6px;vertical-align:middle;">${a.clientCategory}</span>`
+  ).join('');
+}
 function pipelineLabelFor(a){ return a.pipelineStage ? KITCHEN_PIPELINE_LABELS[a.pipelineStage] : ''; }
 function pipelineBadgeHtml(a){
   return (a.team==='kitchen' && a.pipelineStage) ? `<span class="badge badge-${a.pipelineStage}">${pipelineLabelFor(a)}</span>` : '';
@@ -2511,13 +2522,12 @@ function leadCardSales(lead, a){
   <div class="card">
     <div class="card-row">
       <div>
-        <div class="lead-name">${esc(lead.name)} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
+        <div class="lead-name">${esc(lead.name)}${categoryBadgesFor([a])} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
         <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
         <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
-        ${a.clientCategory ? `<span class="badge" style="background:var(--brass);color:#fff;">Category ${a.clientCategory}</span>` : ''}
         ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
       </div>
     </div>
@@ -4261,12 +4271,12 @@ function bindRangeLeadsFilters(prefix, range){
 }
 
 function leadCardHead(l){
-  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${pipelineLabelFor(a)?` (${pipelineLabelFor(a)})`:''}${a.clientCategory?` · Cat ${a.clientCategory}`:''}</span>`).join(' ');
+  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${pipelineLabelFor(a)?` (${pipelineLabelFor(a)})`:''}</span>`).join(' ');
   return `
   <div class="card">
     <div class="card-row">
       <div>
-        <div class="lead-name">${esc(l.name)}</div>
+        <div class="lead-name">${esc(l.name)}${categoryBadgesFor(l.assignments)}</div>
         <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || (receptionMarkedLost(l) ? '<span class="team-tag" style="background:var(--bad);">Reception: Lost (already purchased / not interested)</span>' : '<span class="lead-meta">Not yet referred to sales</span>')}</div>

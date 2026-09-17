@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260916113809';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260917095120';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -788,6 +788,7 @@ function normalizeLead(l){
     if(a.companyReferred===undefined) a.companyReferred = false;
     if(a.companyName===undefined) a.companyName = '';
     if(a.companyPersonName===undefined) a.companyPersonName = '';
+    if(a.clientCategory===undefined) a.clientCategory = null;
     a.log.forEach(log=>{
       if(log.nextFollowUp===undefined) log.nextFollowUp = null;
     });
@@ -2516,6 +2517,7 @@ function leadCardSales(lead, a){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         <span class="badge ${badgeClass}">${statusLabelFor(a)}</span>
+        ${a.clientCategory ? `<span class="badge" style="background:var(--brass);color:#fff;">Category ${a.clientCategory}</span>` : ''}
         ${pipelineBadgeHtml(a)}${pipelineRemainingHtml(a)}
       </div>
     </div>
@@ -4259,7 +4261,7 @@ function bindRangeLeadsFilters(prefix, range){
 }
 
 function leadCardHead(l){
-  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${pipelineLabelFor(a)?` (${pipelineLabelFor(a)})`:''}</span>`).join(' ');
+  const assignChips = (l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}${pipelineLabelFor(a)?` (${pipelineLabelFor(a)})`:''}${a.clientCategory?` · Cat ${a.clientCategory}`:''}</span>`).join(' ');
   return `
   <div class="card">
     <div class="card-row">
@@ -5091,6 +5093,13 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <label>Status</label>
             <select class="assignStatusSel" data-assign="${a.id}">
               ${Object.entries(STATUS_LABELS).filter(([k])=>['pending','visited','partial_sale','sale','lost'].includes(k)).map(([k,v])=>`<option value="${k}" ${a.status===k?'selected':''}>${v}</option>`).join('')}
+            </select>
+            <label>Client Category</label>
+            <select class="assignCategorySel" data-assign="${a.id}">
+              <option value="" ${!a.clientCategory?'selected':''}>— not set —</option>
+              <option value="A" ${a.clientCategory==='A'?'selected':''}>A — High priority</option>
+              <option value="B" ${a.clientCategory==='B'?'selected':''}>B — Medium priority</option>
+              <option value="C" ${a.clientCategory==='C'?'selected':''}>C — Low priority</option>
             </select>
             ${a.team==='kitchen' ? `
             <label>Pipeline</label>
@@ -6393,10 +6402,12 @@ function bindModalHandlers(lead){
       const wasAlreadyLost = prevStatus==='lost';
       const wasAlreadyResolved = prevStatus==='sale' || prevStatus==='lost';
       const status = document.querySelector(`.assignStatusSel[data-assign="${aid}"]`).value;
+      const clientCategory = document.querySelector(`.assignCategorySel[data-assign="${aid}"]`).value || null;
       const product = document.querySelector(`.assignProductInput[data-assign="${aid}"]`).value.trim();
       const remarks = document.querySelector(`.assignRemarksInput[data-assign="${aid}"]`).value.trim();
       if(!remarks){ toast('Add a remark for this update'); return; }
       a.status = status;
+      a.clientCategory = clientCategory;
       a.product = product;
       a.acknowledged = true;
       const pipelineSelEl = document.querySelector(`.assignPipelineSel[data-assign="${aid}"]`);

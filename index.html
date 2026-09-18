@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260917102830';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260918052612';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1938,6 +1938,29 @@ function crossSellLeadCard(l){
 // team. Reception's "active" means their normal actionable queue (unreferred, or
 // with a pending follow-up on the books). A team's "active" means any assignment
 // that hasn't resolved yet (not Sale Done, not Lost).
+// The dept/person/kitchen-stage scoped base list, before source/marketing/
+// category filtering — extracted so the cascading-filter logic can share the
+// exact same scoping as the real results, instead of a parallel copy that
+// could quietly drift out of sync.
+function activeLeadsBaseList(filterVal, kitchenStage){
+  const isKitchenFilter = filterVal.startsWith('sales:kitchen');
+  let list;
+  if(filterVal==='reception'){
+    list = LEADS.filter(l=> !leadHasAssignments(l) && !receptionMarkedLost(l));
+  } else if(filterVal.startsWith('sales:')){
+    const parts = filterVal.split(':');
+    const team = parts[1], name = parts[2];
+    list = LEADS.filter(l=> (l.assignments||[]).some(a=> a.team===team && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost'));
+    if(isKitchenFilter && kitchenStage==='final'){
+      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage==='meeting_quotation'));
+    } else if(isKitchenFilter && kitchenStage==='leads'){
+      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage!=='meeting_quotation'));
+    }
+  } else {
+    list = [];
+  }
+  return list;
+}
 function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, kitchenStage, categoryFilter){
   if(!filterVal) return `<div class="empty">Select a filter above to see active leads.</div>`;
   const isKitchenFilter = filterVal.startsWith('sales:kitchen');
@@ -1954,25 +1977,7 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
     if(!pairs.length) return `<div class="empty">No sales with post-sale work outstanding right now.</div>`;
     return resultCountLine(pairs.length) + pairs.map(({lead,a})=>postSaleReadOnlyCard(lead,a)).join('');
   }
-  let list;
-  if(filterVal==='reception'){
-    // Genuinely still with Reception — not yet referred to anyone. Deliberately
-    // NOT the same list Reception's own "My Leads" uses, since that one also
-    // includes already-referred leads with a pending feedback call — this view
-    // is specifically "what hasn't gone anywhere yet."
-    list = LEADS.filter(l=> !leadHasAssignments(l) && !receptionMarkedLost(l));
-  } else if(filterVal.startsWith('sales:')){
-    const parts = filterVal.split(':');
-    const team = parts[1], name = parts[2];
-    list = LEADS.filter(l=> (l.assignments||[]).some(a=> a.team===team && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost'));
-    if(isKitchenFilter && kitchenStage==='final'){
-      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage==='meeting_quotation'));
-    } else if(isKitchenFilter && kitchenStage==='leads'){
-      list = list.filter(l=> (l.assignments||[]).some(a=> a.team==='kitchen' && (!name || a.salesperson===name) && a.status!=='sale' && a.status!=='lost' && a.pipelineStage!=='meeting_quotation'));
-    }
-  } else {
-    list = [];
-  }
+  let list = activeLeadsBaseList(filterVal, kitchenStage);
   if(sourceFilter) list = list.filter(l=> l.source===sourceFilter);
   if(sourceFilter==='Physical Marketing' && marketingFilter) list = list.filter(l=> l.marketingPersonName===marketingFilter);
   if(categoryFilter) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
@@ -4074,6 +4079,72 @@ function viewAllLeads(){
   <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','','')}</div>
   `;
 }
+// Applies every one of the 9 lead filters EXCEPT one specific field — used to
+// figure out "given everything else currently selected, what values would
+// this one field still produce a result for."
+function applyLeadFiltersExcept(baseList, f, exclude){
+  let list = baseList;
+  if(exclude!=='team' && f.team) list = list.filter(l=> (l.assignments||[]).some(a=>a.team===f.team));
+  if(exclude!=='status' && f.status) list = list.filter(l=> (l.assignments||[]).some(a=>a.status===f.status) || (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===f.status));
+  if(exclude!=='salesperson' && f.salesperson) list = list.filter(l=> (l.assignments||[]).some(a=>a.salesperson===f.salesperson));
+  if(exclude!=='company' && f.company==='yes') list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));
+  else if(exclude!=='company' && f.company==='no') list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
+  if(exclude!=='marketing' && f.marketing) list = list.filter(l=> l.marketingPersonName===f.marketing);
+  if(exclude!=='unreferred' && f.unreferred==='yes') list = list.filter(l=> !leadHasAssignments(l));
+  else if(exclude!=='unreferred' && f.unreferred==='no') list = list.filter(l=> leadHasAssignments(l));
+  if(exclude!=='source' && f.source) list = list.filter(l=> l.source===f.source);
+  if(exclude!=='city' && f.city) list = list.filter(l=> (l.city||'').toLowerCase()===f.city.toLowerCase());
+  if(exclude!=='category' && f.category) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===f.category));
+  return list;
+}
+// Greys out (disables, doesn't remove) any option in each of the 9 dropdowns
+// that would produce zero results given everything else currently selected —
+// so picking one filter visibly narrows what's still pickable everywhere
+// else, without losing the dropdown's scroll position or the user's other
+// selections. "All"/blank options are always left enabled.
+function updateCascadingFilterOptions(baseList, f, els){
+  function validSet(exclude, extractFn){
+    const set = new Set();
+    applyLeadFiltersExcept(baseList, f, exclude).forEach(l=> extractFn(l).forEach(v=>{ if(v) set.add(v); }));
+    return set;
+  }
+  function applyDisabled(selectEl, valid){
+    if(!selectEl) return;
+    Array.from(selectEl.options).forEach(opt=>{
+      if(!opt.value){ opt.disabled = false; return; }
+      opt.disabled = !valid.has(opt.value);
+    });
+  }
+  applyDisabled(els.team, validSet('team', l=>(l.assignments||[]).map(a=>a.team)));
+  applyDisabled(els.status, validSet('status', l=>{
+    const vals = (l.assignments||[]).map(a=>a.status);
+    if(!leadHasAssignments(l) && l.receptionLog?.length) vals.push(l.receptionLog[l.receptionLog.length-1].status);
+    return vals;
+  }));
+  applyDisabled(els.salesperson, validSet('salesperson', l=>(l.assignments||[]).map(a=>a.salesperson)));
+  applyDisabled(els.source, validSet('source', l=>[l.source]));
+  applyDisabled(els.city, validSet('city', l=>[l.city]));
+  applyDisabled(els.marketing, validSet('marketing', l=> l.source==='Physical Marketing' ? [l.marketingPersonName] : []));
+  applyDisabled(els.category, validSet('category', l=>(l.assignments||[]).map(a=>a.clientCategory)));
+  if(els.company){
+    const scoped = applyLeadFiltersExcept(baseList, f, 'company');
+    const hasYes = scoped.some(l=>(l.assignments||[]).some(a=>a.companyReferred));
+    const hasNo = scoped.some(l=>!(l.assignments||[]).some(a=>a.companyReferred));
+    Array.from(els.company.options).forEach(opt=>{
+      if(opt.value==='yes') opt.disabled = !hasYes;
+      else if(opt.value==='no') opt.disabled = !hasNo;
+    });
+  }
+  if(els.unreferred){
+    const scoped = applyLeadFiltersExcept(baseList, f, 'unreferred');
+    const hasYes = scoped.some(l=>!leadHasAssignments(l));
+    const hasNo = scoped.some(l=>leadHasAssignments(l));
+    Array.from(els.unreferred.options).forEach(opt=>{
+      if(opt.value==='yes') opt.disabled = !hasYes;
+      else if(opt.value==='no') opt.disabled = !hasNo;
+    });
+  }
+}
 function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
@@ -4275,8 +4346,11 @@ function bindRangeLeadsFilters(prefix, range){
   }
   if(team) repopulateSalesFilterR(team.value);
   function refresh(){
+    const f = {team:team?team.value:'', status:status?status.value:'', salesperson:sales?sales.value:'', company:company?company.value:'', marketing:marketing?marketing.value:'', unreferred:unreferred?unreferred.value:'', source:sourceSel?sourceSel.value:'', city:citySel?citySel.value:'', category:categorySel?categorySel.value:''};
+    const rangeLeads = leadsActiveInRange(range.start, range.end);
     document.getElementById(prefix+'AllLeadsResults').innerHTML =
-      filterLeadsList(leadsActiveInRange(range.start, range.end), search?search.value:'', team?team.value:'', status?status.value:'', sales?sales.value:'', company?company.value:'', marketing?marketing.value:'', unreferred?unreferred.value:'', sourceSel?sourceSel.value:'', citySel?citySel.value:'', categorySel?categorySel.value:'');
+      filterLeadsList(rangeLeads, search?search.value:'', f.team, f.status, f.salesperson, f.company, f.marketing, f.unreferred, f.source, f.city, f.category);
+    updateCascadingFilterOptions(rangeLeads, f, {team, status, salesperson:sales, company, marketing, unreferred, source:sourceSel, city:citySel, category:categorySel});
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -5545,6 +5619,33 @@ function bindDynamicHandlers(){
     const kitchenStage = (dept==='kitchen' && activeLeadsKitchenStageFilter) ? activeLeadsKitchenStageFilter.value : '';
     const categoryVal = activeLeadsCategoryFilter ? activeLeadsCategoryFilter.value : '';
     document.getElementById('activeLeadsResults').innerHTML = renderHeadActiveLeadsResults(filterVal, sourceVal, marketingVal, kitchenStage, categoryVal);
+    // Source, Marketing Person, and Category cross-narrow each other based on
+    // whatever's already scoped by Dept/Person/Kitchen-stage — same grey-out
+    // approach as everywhere else, not a full options rebuild.
+    if(filterVal){
+      const baseList = activeLeadsBaseList(filterVal, kitchenStage);
+      const f = {source:sourceVal, marketing:marketingVal, category:categoryVal};
+      function scoped(exclude){
+        let l = baseList;
+        if(exclude!=='source' && f.source) l = l.filter(x=>x.source===f.source);
+        if(exclude!=='marketing' && f.source==='Physical Marketing' && f.marketing) l = l.filter(x=>x.marketingPersonName===f.marketing);
+        if(exclude!=='category' && f.category) l = l.filter(x=>(x.assignments||[]).some(a=>a.clientCategory===f.category));
+        return l;
+      }
+      function applyDisabled(selectEl, valid){
+        if(!selectEl) return;
+        Array.from(selectEl.options).forEach(opt=>{
+          if(!opt.value){ opt.disabled = false; return; }
+          opt.disabled = !valid.has(opt.value);
+        });
+      }
+      const sourceValid = new Set(); scoped('source').forEach(l=>sourceValid.add(l.source));
+      const marketingValid = new Set(); scoped('marketing').forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName) marketingValid.add(l.marketingPersonName); });
+      const categoryValid = new Set(); scoped('category').forEach(l=>(l.assignments||[]).forEach(a=>{ if(a.clientCategory) categoryValid.add(a.clientCategory); }));
+      applyDisabled(activeLeadsSourceFilter, sourceValid);
+      applyDisabled(activeLeadsMarketingFilter, marketingValid);
+      applyDisabled(activeLeadsCategoryFilter, categoryValid);
+    }
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -6008,8 +6109,10 @@ function bindDynamicHandlers(){
   // firing a 'change' event (happens on back-navigation / mobile session restore).
   if(filterTeam) repopulateSalesFilter(filterTeam.value);
   function refreshResults(){
+    const f = {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:''};
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', filterTeam?filterTeam.value:'', filterStatus?filterStatus.value:'', filterSales?filterSales.value:'', filterCompany?filterCompany.value:'', filterMarketing?filterMarketing.value:'', filterUnreferred?filterUnreferred.value:'', filterSource?filterSource.value:'', filterCity?filterCity.value:'', filterCategory?filterCategory.value:'');
+      renderAllLeadsResults(searchBox?searchBox.value:'', f.team, f.status, f.salesperson, f.company, f.marketing, f.unreferred, f.source, f.city, f.category);
+    updateCascadingFilterOptions(LEADS, f, {team:filterTeam, status:filterStatus, salesperson:filterSales, company:filterCompany, marketing:filterMarketing, unreferred:filterUnreferred, source:filterSource, city:filterCity, category:filterCategory});
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
     });
@@ -6025,6 +6128,10 @@ function bindDynamicHandlers(){
   if(filterSource) filterSource.addEventListener('change', refreshResults);
   if(filterCity) filterCity.addEventListener('change', refreshResults);
   if(filterCategory) filterCategory.addEventListener('change', refreshResults);
+  // Initial sync — in case any filter value was restored by the browser
+  // without firing a 'change' event, the disabled states still need to
+  // reflect reality from the start, not just after the next interaction.
+  updateCascadingFilterOptions(LEADS, {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:''}, {team:filterTeam, status:filterStatus, salesperson:filterSales, company:filterCompany, marketing:filterMarketing, unreferred:filterUnreferred, source:filterSource, city:filterCity, category:filterCategory});
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);

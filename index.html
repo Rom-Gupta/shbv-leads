@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260918052612';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260930060822';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4031,6 +4031,7 @@ function viewAllLeads(){
   const cities = Array.from(new Set(LEADS.map(l=>l.city).filter(Boolean))).sort();
   return `
   ${SESSION.role==='head' ? `<button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;">⬇ Full Data Backup (JSON — every detail)</button>` : ''}
+  <button class="btn btn-ghost btn-sm" id="exportFilteredCsvBtn" style="margin-bottom:12px;">⬇ Download Filtered Leads (CSV)</button>
   <div class="searchbar"><input type="text" id="searchBox" placeholder="Search by name or phone..."></div>
   <div class="filter-row">
     <select id="filterTeam">
@@ -4145,7 +4146,10 @@ function updateCascadingFilterOptions(baseList, f, els){
     });
   }
 }
-function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
+// Pure data version of the 9-filter All Leads logic — returns the filtered
+// array of leads (not HTML), so both the on-screen results and the
+// filtered-CSV export apply the exact same filtering with no risk of drift.
+function computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -4183,6 +4187,10 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
   if(categoryFilter){
     list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
   }
+  return list;
+}
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
+  const list = computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter);
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
@@ -4434,6 +4442,47 @@ function downloadCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href=url; a.download=`shbv-leads-${todayStr()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+// Lightweight export for All Leads: only whatever leads are currently
+// showing under the active filters, and only 4 columns — just enough
+// to hand off a calling/mailing list, not a full data backup.
+function filteredLeadsToCSV(list){
+  const rows = [['Name','Number','Address','Source']];
+  list.forEach(l=> rows.push([l.name, l.phone, l.address||'', l.source]));
+  return rows.map(r=>r.map(c=>`"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+}
+function downloadFilteredLeadsCSV(){
+  const searchBox = document.getElementById('searchBox');
+  const filterTeam = document.getElementById('filterTeam');
+  const filterStatus = document.getElementById('filterStatus');
+  const filterSales = document.getElementById('filterSales');
+  const filterCompany = document.getElementById('filterCompany');
+  const filterMarketing = document.getElementById('filterMarketing');
+  const filterUnreferred = document.getElementById('filterUnreferred');
+  const filterSource = document.getElementById('filterSource');
+  const filterCity = document.getElementById('filterCity');
+  const filterCategory = document.getElementById('filterCategory');
+  const list = computeFilteredLeadsList(
+    LEADS,
+    searchBox?searchBox.value:'',
+    filterTeam?filterTeam.value:'',
+    filterStatus?filterStatus.value:'',
+    filterSales?filterSales.value:'',
+    filterCompany?filterCompany.value:'',
+    filterMarketing?filterMarketing.value:'',
+    filterUnreferred?filterUnreferred.value:'',
+    filterSource?filterSource.value:'',
+    filterCity?filterCity.value:'',
+    filterCategory?filterCategory.value:''
+  );
+  if(!list.length){ toast('No leads match the current filters.'); return; }
+  const csv = filteredLeadsToCSV(list);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`shbv-leads-filtered-${todayStr()}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -6137,6 +6186,8 @@ function bindDynamicHandlers(){
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);
   const exportFullBackupBtn = document.getElementById('exportFullBackupBtn');
   if(exportFullBackupBtn) exportFullBackupBtn.addEventListener('click', downloadFullBackup);
+  const exportFilteredCsvBtn = document.getElementById('exportFilteredCsvBtn');
+  if(exportFilteredCsvBtn) exportFilteredCsvBtn.addEventListener('click', downloadFilteredLeadsCSV);
 
   const followupTodayDeptFilter = document.getElementById('followupTodayDeptFilter');
   const followupTodayPersonWrap = document.getElementById('followupTodayPersonWrap');

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260930060822';</script>
+<script>window.__APP_VERSION_MARKER__ = '20260930063659';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4036,6 +4036,7 @@ function viewAllLeads(){
   <div class="filter-row">
     <select id="filterTeam">
       <option value="">All teams</option>
+      <option value="reception">Reception</option>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
     </select>
     <select id="filterStatus">
@@ -4085,9 +4086,15 @@ function viewAllLeads(){
 // this one field still produce a result for."
 function applyLeadFiltersExcept(baseList, f, exclude){
   let list = baseList;
-  if(exclude!=='team' && f.team) list = list.filter(l=> (l.assignments||[]).some(a=>a.team===f.team));
+  if(exclude!=='team' && f.team){
+    if(f.team==='reception') list = list.filter(l=> !leadHasAssignments(l));
+    else list = list.filter(l=> (l.assignments||[]).some(a=>a.team===f.team));
+  }
   if(exclude!=='status' && f.status) list = list.filter(l=> (l.assignments||[]).some(a=>a.status===f.status) || (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===f.status));
-  if(exclude!=='salesperson' && f.salesperson) list = list.filter(l=> (l.assignments||[]).some(a=>a.salesperson===f.salesperson));
+  if(exclude!=='salesperson' && f.salesperson) list = list.filter(l=>
+    (l.assignments||[]).some(a=>a.salesperson===f.salesperson) ||
+    (!leadHasAssignments(l) && (l.createdBy===f.salesperson || (l.receptionLog||[]).some(log=>log.author===f.salesperson)))
+  );
   if(exclude!=='company' && f.company==='yes') list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));
   else if(exclude!=='company' && f.company==='no') list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
   if(exclude!=='marketing' && f.marketing) list = list.filter(l=> l.marketingPersonName===f.marketing);
@@ -4116,13 +4123,24 @@ function updateCascadingFilterOptions(baseList, f, els){
       opt.disabled = !valid.has(opt.value);
     });
   }
-  applyDisabled(els.team, validSet('team', l=>(l.assignments||[]).map(a=>a.team)));
+  applyDisabled(els.team, validSet('team', l=>{
+    const vals = (l.assignments||[]).map(a=>a.team);
+    if(!leadHasAssignments(l)) vals.push('reception');
+    return vals;
+  }));
   applyDisabled(els.status, validSet('status', l=>{
     const vals = (l.assignments||[]).map(a=>a.status);
     if(!leadHasAssignments(l) && l.receptionLog?.length) vals.push(l.receptionLog[l.receptionLog.length-1].status);
     return vals;
   }));
-  applyDisabled(els.salesperson, validSet('salesperson', l=>(l.assignments||[]).map(a=>a.salesperson)));
+  applyDisabled(els.salesperson, validSet('salesperson', l=>{
+    const vals = (l.assignments||[]).map(a=>a.salesperson);
+    if(!leadHasAssignments(l)){
+      if(l.createdBy) vals.push(l.createdBy);
+      (l.receptionLog||[]).forEach(log=>{ if(log.author) vals.push(log.author); });
+    }
+    return vals;
+  }));
   applyDisabled(els.source, validSet('source', l=>[l.source]));
   applyDisabled(els.city, validSet('city', l=>[l.city]));
   applyDisabled(els.marketing, validSet('marketing', l=> l.source==='Physical Marketing' ? [l.marketingPersonName] : []));
@@ -4156,14 +4174,21 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     list = list.filter(l=> l.name.toLowerCase().includes(s) || (l.phone||'').includes(s));
   }
   if(team){
-    list = list.filter(l=> (l.assignments||[]).some(a=>a.team===team));
+    if(team==='reception') list = list.filter(l=> !leadHasAssignments(l));
+    else list = list.filter(l=> (l.assignments||[]).some(a=>a.team===team));
   }
   if(status){
     list = list.filter(l=> (l.assignments||[]).some(a=>a.status===status) ||
       (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===status));
   }
   if(salesperson){
-    list = list.filter(l=> (l.assignments||[]).some(a=>a.salesperson===salesperson));
+    // Covers both a sales assignment's salesperson AND, for a lead still with
+    // Reception (no assignments yet), whoever added it or logged a reception
+    // note — needed so "Team: Reception" + a reception staff name works too.
+    list = list.filter(l=>
+      (l.assignments||[]).some(a=>a.salesperson===salesperson) ||
+      (!leadHasAssignments(l) && (l.createdBy===salesperson || (l.receptionLog||[]).some(log=>log.author===salesperson)))
+    );
   }
   if(companyFilter==='yes'){
     list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));

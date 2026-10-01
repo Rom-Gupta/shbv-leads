@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20260930063659';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261001122559';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -207,6 +207,7 @@
   .phone-input-group input[type=tel]{border-radius:0 8px 8px 0;margin-bottom:0;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
   .filter-row select{width:auto;margin-bottom:0;font-size:13px;padding:7px 10px;}
+  .filter-row input[type=date]{width:auto;margin-bottom:0;font-size:13px;padding:6px 10px;}
   .helper{font-size:12px;color:var(--ink-soft);margin-top:-4px;margin-bottom:10px;}
   .toast{
     position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--teal);color:#fff;
@@ -4078,7 +4079,14 @@ function viewAllLeads(){
       <option value="C">C — Low priority</option>
     </select>
   </div>
-  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','','')}</div>
+  <div class="filter-row" style="align-items:center;">
+    <label style="margin:0;font-size:12.5px;color:var(--ink-soft);font-weight:600;">Added between:</label>
+    <input type="date" id="filterDateFrom" style="width:auto;">
+    <label style="margin:0;font-size:12.5px;color:var(--ink-soft);font-weight:600;">and</label>
+    <input type="date" id="filterDateTo" style="width:auto;">
+    <button class="btn btn-ghost btn-sm" id="clearDateRangeBtn" type="button">Clear dates</button>
+  </div>
+  <div id="allLeadsResults">${renderAllLeadsResults('','','','','','','','','','','','')}</div>
   `;
 }
 // Applies every one of the 9 lead filters EXCEPT one specific field — used to
@@ -4103,6 +4111,11 @@ function applyLeadFiltersExcept(baseList, f, exclude){
   if(exclude!=='source' && f.source) list = list.filter(l=> l.source===f.source);
   if(exclude!=='city' && f.city) list = list.filter(l=> (l.city||'').toLowerCase()===f.city.toLowerCase());
   if(exclude!=='category' && f.category) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===f.category));
+  // Date range isn't a dropdown with options to grey out, so it's always
+  // applied (no "exclude" case) — it still needs to narrow what every other
+  // filter's cascading options show as valid.
+  if(f.dateFrom) list = list.filter(l=> l.createdAt.slice(0,10) >= f.dateFrom);
+  if(f.dateTo) list = list.filter(l=> l.createdAt.slice(0,10) <= f.dateTo);
   return list;
 }
 // Greys out (disables, doesn't remove) any option in each of the 9 dropdowns
@@ -4167,7 +4180,7 @@ function updateCascadingFilterOptions(baseList, f, els){
 // Pure data version of the 9-filter All Leads logic — returns the filtered
 // array of leads (not HTML), so both the on-screen results and the
 // filtered-CSV export apply the exact same filtering with no risk of drift.
-function computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
+function computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo){
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
@@ -4212,15 +4225,21 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
   if(categoryFilter){
     list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
   }
+  if(dateFrom){
+    list = list.filter(l=> l.createdAt.slice(0,10) >= dateFrom);
+  }
+  if(dateTo){
+    list = list.filter(l=> l.createdAt.slice(0,10) <= dateTo);
+  }
   return list;
 }
-function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
-  const list = computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter);
+function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo){
+  const list = computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo);
   if(!list.length) return `<div class="empty">No matching leads.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
-function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter){
-  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter);
+function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo){
+  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -4489,6 +4508,8 @@ function downloadFilteredLeadsCSV(){
   const filterSource = document.getElementById('filterSource');
   const filterCity = document.getElementById('filterCity');
   const filterCategory = document.getElementById('filterCategory');
+  const filterDateFrom = document.getElementById('filterDateFrom');
+  const filterDateTo = document.getElementById('filterDateTo');
   const list = computeFilteredLeadsList(
     LEADS,
     searchBox?searchBox.value:'',
@@ -4500,7 +4521,9 @@ function downloadFilteredLeadsCSV(){
     filterUnreferred?filterUnreferred.value:'',
     filterSource?filterSource.value:'',
     filterCity?filterCity.value:'',
-    filterCategory?filterCategory.value:''
+    filterCategory?filterCategory.value:'',
+    filterDateFrom?filterDateFrom.value:'',
+    filterDateTo?filterDateTo.value:''
   );
   if(!list.length){ toast('No leads match the current filters.'); return; }
   const csv = filteredLeadsToCSV(list);
@@ -6172,6 +6195,9 @@ function bindDynamicHandlers(){
   const filterSource = document.getElementById('filterSource');
   const filterCity = document.getElementById('filterCity');
   const filterCategory = document.getElementById('filterCategory');
+  const filterDateFrom = document.getElementById('filterDateFrom');
+  const filterDateTo = document.getElementById('filterDateTo');
+  const clearDateRangeBtn = document.getElementById('clearDateRangeBtn');
   function repopulateSalesFilter(teamVal){
     if(!filterSales) return;
     const options = teamVal
@@ -6183,9 +6209,9 @@ function bindDynamicHandlers(){
   // firing a 'change' event (happens on back-navigation / mobile session restore).
   if(filterTeam) repopulateSalesFilter(filterTeam.value);
   function refreshResults(){
-    const f = {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:''};
+    const f = {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:'', dateFrom:filterDateFrom?filterDateFrom.value:'', dateTo:filterDateTo?filterDateTo.value:''};
     document.getElementById('allLeadsResults').innerHTML =
-      renderAllLeadsResults(searchBox?searchBox.value:'', f.team, f.status, f.salesperson, f.company, f.marketing, f.unreferred, f.source, f.city, f.category);
+      renderAllLeadsResults(searchBox?searchBox.value:'', f.team, f.status, f.salesperson, f.company, f.marketing, f.unreferred, f.source, f.city, f.category, f.dateFrom, f.dateTo);
     updateCascadingFilterOptions(LEADS, f, {team:filterTeam, status:filterStatus, salesperson:filterSales, company:filterCompany, marketing:filterMarketing, unreferred:filterUnreferred, source:filterSource, city:filterCity, category:filterCategory});
     document.querySelectorAll('[data-open-lead]').forEach(el=>{
       el.addEventListener('click', ()=> openLeadModal(el.dataset.openLead, el.dataset.focusAssign||null, el.dataset.mode||'view', el.dataset.focusSection||null));
@@ -6202,10 +6228,17 @@ function bindDynamicHandlers(){
   if(filterSource) filterSource.addEventListener('change', refreshResults);
   if(filterCity) filterCity.addEventListener('change', refreshResults);
   if(filterCategory) filterCategory.addEventListener('change', refreshResults);
+  if(filterDateFrom) filterDateFrom.addEventListener('change', refreshResults);
+  if(filterDateTo) filterDateTo.addEventListener('change', refreshResults);
+  if(clearDateRangeBtn) clearDateRangeBtn.addEventListener('click', ()=>{
+    if(filterDateFrom) filterDateFrom.value='';
+    if(filterDateTo) filterDateTo.value='';
+    refreshResults();
+  });
   // Initial sync — in case any filter value was restored by the browser
   // without firing a 'change' event, the disabled states still need to
   // reflect reality from the start, not just after the next interaction.
-  updateCascadingFilterOptions(LEADS, {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:''}, {team:filterTeam, status:filterStatus, salesperson:filterSales, company:filterCompany, marketing:filterMarketing, unreferred:filterUnreferred, source:filterSource, city:filterCity, category:filterCategory});
+  updateCascadingFilterOptions(LEADS, {team:filterTeam?filterTeam.value:'', status:filterStatus?filterStatus.value:'', salesperson:filterSales?filterSales.value:'', company:filterCompany?filterCompany.value:'', marketing:filterMarketing?filterMarketing.value:'', unreferred:filterUnreferred?filterUnreferred.value:'', source:filterSource?filterSource.value:'', city:filterCity?filterCity.value:'', category:filterCategory?filterCategory.value:'', dateFrom:filterDateFrom?filterDateFrom.value:'', dateTo:filterDateTo?filterDateTo.value:''}, {team:filterTeam, status:filterStatus, salesperson:filterSales, company:filterCompany, marketing:filterMarketing, unreferred:filterUnreferred, source:filterSource, city:filterCity, category:filterCategory});
 
   const exportBtn = document.getElementById('exportCsvBtn');
   if(exportBtn) exportBtn.addEventListener('click', downloadCSV);

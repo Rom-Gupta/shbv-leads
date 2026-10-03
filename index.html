@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261001122559';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261003095743';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -2399,6 +2399,48 @@ function postSaleCard(lead, a){
     </div>
   </div>`;
 }
+// Compact post-sale tracker for embedding directly inside the lead detail
+// modal, for a Kitchen/Wardrobe assignment marked Sale Done. postSaleCard and
+// postSaleReadOnlyCard above are for the dedicated list views (My Leads "Done
+// Lead" tab, Head's Active Leads) — they repeat the lead's name/phone and a
+// "View Full Lead" button, which would be redundant here since the lead is
+// already open. `editable` controls whether the Mark-Done form is shown
+// (the assignment's own salesperson) or just the read-only status (everyone
+// else who can see this assignment, e.g. Head).
+function postSaleInlineBlock(lead, a, editable){
+  const isComplete = a.postSaleStage==='completed';
+  const lastDoneIdx = (a.postSaleStage && !isComplete) ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+  const pendingStage = isComplete ? null : POST_SALE_STAGE_ORDER[lastDoneIdx+1];
+  const doneStages = isComplete ? POST_SALE_STAGE_ORDER : POST_SALE_STAGE_ORDER.slice(0, lastDoneIdx+1);
+  return `
+  <div style="margin-top:12px;">
+    <div class="section-title" style="margin:0 0 6px;">🔧 Post-Sale Tracking</div>
+    ${doneStages.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+      ${doneStages.map(s=>`<span class="team-tag" style="background:#3D6B4A;">✓ ${POST_SALE_STAGE_LABELS[s]}</span>`).join('')}
+    </div>` : `<div class="lead-meta">No step done yet</div>`}
+    ${isComplete ? `<div class="lead-meta" style="margin-top:8px;color:var(--ok);font-weight:600;">✓ All post-sale steps complete</div>` :
+      editable ? `
+      <div class="assign-block" style="margin-top:10px;">
+        <div class="section-title" style="margin:0 0 6px;">Next: ${POST_SALE_STAGE_LABELS[pendingStage]}</div>
+        <label>Date for next step</label>
+        <input type="date" class="postSaleNextDateInput" data-assign="${a.id}" data-lead="${lead.id}" value="${a.postSaleNextDate||''}">
+        <label>Note (optional)</label>
+        <textarea class="postSaleNoteInput" data-assign="${a.id}" placeholder="Anything worth noting about this step"></textarea>
+        <button class="btn btn-brass btn-sm markPostSaleDoneBtn" data-assign="${a.id}" data-lead="${lead.id}">Mark "${POST_SALE_STAGE_LABELS[pendingStage]}" Done</button>
+      </div>
+      ${a.postSaleNextDate ? `<div class="lead-meta" style="margin-top:6px;">Next step expected: <b>${fmtDate(a.postSaleNextDate)}</b></div>` : ''}
+      ` : `<div class="lead-meta" style="margin-top:8px;color:var(--warn);font-weight:600;">Next: ${POST_SALE_STAGE_LABELS[pendingStage]}${a.postSaleNextDate ? ` — expected ${fmtDate(a.postSaleNextDate)}` : ''}</div>`
+    }
+    ${a.postSaleLog && a.postSaleLog.length ? `
+      <div class="section-title" style="margin-top:10px;">History</div>
+      ${a.postSaleLog.slice().reverse().map(e=>`
+        <div class="log-entry">
+          <div class="meta">${esc(e.author||'')} · ${fmtDateTime(e.completedAt)}</div>
+          ${POST_SALE_STAGE_LABELS[e.stage]||e.stage} completed. ${e.remarks?esc(e.remarks):''} ${e.nextDate?`<div class="meta">Next step expected: ${fmtDate(e.nextDate)}</div>`:''}
+        </div>`).join('')}
+    ` : ''}
+  </div>`;
+}
 function viewMyLeads(mode){
   if(mode==='final'){
     const pairs = kitchenFinalStageLeadsForMe();
@@ -4092,25 +4134,35 @@ function viewAllLeads(){
 // Applies every one of the 9 lead filters EXCEPT one specific field — used to
 // figure out "given everything else currently selected, what values would
 // this one field still produce a result for."
+// When a department/team is also selected, status/salesperson/company/category
+// must only be checked against THAT team's assignment, not any assignment on
+// the lead — otherwise filtering "Tiles: Lost" would wrongly include a lead
+// that's Lost in Tiles but Sale Done in Sanitary (it has a matching status
+// somewhere, just not in the chosen team).
+function teamScopedAssignments(lead, team){
+  const assigns = lead.assignments || [];
+  if(team && team!=='reception') return assigns.filter(a=>a.team===team);
+  return assigns;
+}
 function applyLeadFiltersExcept(baseList, f, exclude){
   let list = baseList;
   if(exclude!=='team' && f.team){
     if(f.team==='reception') list = list.filter(l=> !leadHasAssignments(l));
     else list = list.filter(l=> (l.assignments||[]).some(a=>a.team===f.team));
   }
-  if(exclude!=='status' && f.status) list = list.filter(l=> (l.assignments||[]).some(a=>a.status===f.status) || (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===f.status));
+  if(exclude!=='status' && f.status) list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>a.status===f.status) || (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===f.status));
   if(exclude!=='salesperson' && f.salesperson) list = list.filter(l=>
-    (l.assignments||[]).some(a=>a.salesperson===f.salesperson) ||
+    teamScopedAssignments(l, f.team).some(a=>a.salesperson===f.salesperson) ||
     (!leadHasAssignments(l) && (l.createdBy===f.salesperson || (l.receptionLog||[]).some(log=>log.author===f.salesperson)))
   );
-  if(exclude!=='company' && f.company==='yes') list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));
-  else if(exclude!=='company' && f.company==='no') list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
+  if(exclude!=='company' && f.company==='yes') list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>a.companyReferred));
+  else if(exclude!=='company' && f.company==='no') list = list.filter(l=> !teamScopedAssignments(l, f.team).some(a=>a.companyReferred));
   if(exclude!=='marketing' && f.marketing) list = list.filter(l=> l.marketingPersonName===f.marketing);
   if(exclude!=='unreferred' && f.unreferred==='yes') list = list.filter(l=> !leadHasAssignments(l));
   else if(exclude!=='unreferred' && f.unreferred==='no') list = list.filter(l=> leadHasAssignments(l));
   if(exclude!=='source' && f.source) list = list.filter(l=> l.source===f.source);
   if(exclude!=='city' && f.city) list = list.filter(l=> (l.city||'').toLowerCase()===f.city.toLowerCase());
-  if(exclude!=='category' && f.category) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===f.category));
+  if(exclude!=='category' && f.category) list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>a.clientCategory===f.category));
   // Date range isn't a dropdown with options to grey out, so it's always
   // applied (no "exclude" case) — it still needs to narrow what every other
   // filter's cascading options show as valid.
@@ -4142,12 +4194,12 @@ function updateCascadingFilterOptions(baseList, f, els){
     return vals;
   }));
   applyDisabled(els.status, validSet('status', l=>{
-    const vals = (l.assignments||[]).map(a=>a.status);
+    const vals = teamScopedAssignments(l, f.team).map(a=>a.status);
     if(!leadHasAssignments(l) && l.receptionLog?.length) vals.push(l.receptionLog[l.receptionLog.length-1].status);
     return vals;
   }));
   applyDisabled(els.salesperson, validSet('salesperson', l=>{
-    const vals = (l.assignments||[]).map(a=>a.salesperson);
+    const vals = teamScopedAssignments(l, f.team).map(a=>a.salesperson);
     if(!leadHasAssignments(l)){
       if(l.createdBy) vals.push(l.createdBy);
       (l.receptionLog||[]).forEach(log=>{ if(log.author) vals.push(log.author); });
@@ -4157,7 +4209,7 @@ function updateCascadingFilterOptions(baseList, f, els){
   applyDisabled(els.source, validSet('source', l=>[l.source]));
   applyDisabled(els.city, validSet('city', l=>[l.city]));
   applyDisabled(els.marketing, validSet('marketing', l=> l.source==='Physical Marketing' ? [l.marketingPersonName] : []));
-  applyDisabled(els.category, validSet('category', l=>(l.assignments||[]).map(a=>a.clientCategory)));
+  applyDisabled(els.category, validSet('category', l=>teamScopedAssignments(l, f.team).map(a=>a.clientCategory)));
   if(els.company){
     const scoped = applyLeadFiltersExcept(baseList, f, 'company');
     const hasYes = scoped.some(l=>(l.assignments||[]).some(a=>a.companyReferred));
@@ -4191,7 +4243,11 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     else list = list.filter(l=> (l.assignments||[]).some(a=>a.team===team));
   }
   if(status){
-    list = list.filter(l=> (l.assignments||[]).some(a=>a.status===status) ||
+    // Scoped to the selected team's own assignment when a team is also chosen —
+    // otherwise "Tiles: Lost" would also match a lead that's merely Sale Done
+    // in a different department, since that lead has *a* matching status
+    // somewhere, just not in Tiles.
+    list = list.filter(l=> teamScopedAssignments(l, team).some(a=>a.status===status) ||
       (!leadHasAssignments(l) && l.receptionLog?.length && l.receptionLog[l.receptionLog.length-1].status===status));
   }
   if(salesperson){
@@ -4199,14 +4255,14 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     // Reception (no assignments yet), whoever added it or logged a reception
     // note — needed so "Team: Reception" + a reception staff name works too.
     list = list.filter(l=>
-      (l.assignments||[]).some(a=>a.salesperson===salesperson) ||
+      teamScopedAssignments(l, team).some(a=>a.salesperson===salesperson) ||
       (!leadHasAssignments(l) && (l.createdBy===salesperson || (l.receptionLog||[]).some(log=>log.author===salesperson)))
     );
   }
   if(companyFilter==='yes'){
-    list = list.filter(l=> (l.assignments||[]).some(a=>a.companyReferred));
+    list = list.filter(l=> teamScopedAssignments(l, team).some(a=>a.companyReferred));
   } else if(companyFilter==='no'){
-    list = list.filter(l=> !(l.assignments||[]).some(a=>a.companyReferred));
+    list = list.filter(l=> !teamScopedAssignments(l, team).some(a=>a.companyReferred));
   }
   if(marketingFilter){
     list = list.filter(l=> l.marketingPersonName===marketingFilter);
@@ -4223,7 +4279,7 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     list = list.filter(l=> (l.city||'').toLowerCase()===cityFilter.toLowerCase());
   }
   if(categoryFilter){
-    list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
+    list = list.filter(l=> teamScopedAssignments(l, team).some(a=>a.clientCategory===categoryFilter));
   }
   if(dateFrom){
     list = list.filter(l=> l.createdAt.slice(0,10) >= dateFrom);
@@ -5359,9 +5415,13 @@ function renderLeadDetail(lead, focusAssignId, mode){
           </div>` : `
           <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
             <div class="lead-meta">${a.status==='sale'
-              ? 'Sale done — no manual follow-up needed here. Reception has a Feedback Call auto-scheduled 2 days after the sale.'
+              ? (a.team==='kitchen' ? "Sale done — install tracking below. Reception's Feedback Call gets auto-scheduled once every post-sale step is complete." : 'Sale done — no manual follow-up needed here. Reception has a Feedback Call auto-scheduled 2 days after the sale.')
               : 'Marked as lost — no follow-up needed.'}</div>
-          </div>`}` : ''}
+            ${a.status==='sale' && a.team==='kitchen' ? postSaleInlineBlock(lead, a, true) : ''}
+          </div>`}` : (a.status==='sale' && a.team==='kitchen' ? `
+        <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
+          ${postSaleInlineBlock(lead, a, false)}
+        </div>` : '')}
       </div>`;
     });
   }
@@ -6754,6 +6814,48 @@ function bindModalHandlers(lead){
       });
       await saveLeads(LEADS);
       toast(noFuture ? 'Call logged — no future follow-up set' : 'Follow-up call logged');
+      closeModal();
+      renderApp();
+    }));
+  });
+
+  // Post-sale tracking (postSaleInlineBlock) — same "mark this step done" logic
+  // as the Done-Lead tab / Head's Active Leads cards, just wired up here too
+  // since the step can now also be marked directly from the lead's own modal.
+  document.querySelectorAll('#modalBox .markPostSaleDoneBtn').forEach(btn=>{
+    btn.addEventListener('click', withSavingState(btn, async ()=>{
+      const assignId = btn.dataset.assign, leadId = btn.dataset.lead;
+      const targetLead = LEADS.find(l=>l.id===leadId);
+      const a = targetLead && targetLead.assignments.find(x=>x.id===assignId);
+      if(!a) return;
+      const nextDateEl = document.querySelector(`.postSaleNextDateInput[data-assign="${assignId}"]`);
+      const noteEl = document.querySelector(`.postSaleNoteInput[data-assign="${assignId}"]`);
+      const nextDate = nextDateEl ? nextDateEl.value : '';
+      const note = noteEl ? noteEl.value.trim() : '';
+      const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
+      const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
+      if(!a.postSaleLog) a.postSaleLog = [];
+      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+      if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
+        a.postSaleStage = 'completed';
+        a.postSaleNextDate = null;
+        // Same as the other two markPostSaleDoneBtn handlers — the Kitchen
+        // feedback call only gets scheduled once the full post-sale process
+        // (every stage through Punch Order) is actually finished.
+        const d = new Date(); d.setDate(d.getDate()+29);
+        const feedbackDate = d.toISOString().slice(0,10);
+        if(!targetLead.receptionLog) targetLead.receptionLog = [];
+        targetLead.receptionLog.push({
+          timestamp:new Date().toISOString(), author:'System (auto)',
+          remarks:`Feedback Call (SALE DONE) — auto-scheduled after Kitchen/Wardrobe finished the full post-sale process (Punch Order done). Customer's install is complete — call to check satisfaction/after-sales.`,
+          status:'followup', nextFollowUp: feedbackDate, kind:'feedback-sale'
+        });
+      } else {
+        a.postSaleStage = stageBeingMarked;
+        a.postSaleNextDate = nextDate || null;
+      }
+      await saveLeads(LEADS);
+      toast(`${POST_SALE_STAGE_LABELS[stageBeingMarked]} marked done`);
       closeModal();
       renderApp();
     }));

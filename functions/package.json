@@ -1,0 +1,11 @@
+{
+  "name": "shbv-leads-functions",
+  "description": "Server-side push notifications for SHBV Lead Manager — sends a real push (works even if nobody has the app open) when a new lead is referred to a salesperson, and a daily digest of what's due today.",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.1.0",
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}

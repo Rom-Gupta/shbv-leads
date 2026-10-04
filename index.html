@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261004055732';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261004060207';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3933,12 +3933,13 @@ let WEEK_RANGE = null;
 let CUSTOM_REPORT_DATE = null;
 let DAILY_STAT_FILTER = null; // 'walkins' | 'crosssell' | 'oldreferred' | 'oldupdated' | null
 let CUSTOM_STAT_FILTER = null;
-const STAT_FILTER_LABELS = {walkins:'Walk-ins', crosssell:'Cross-sell Referrals', oldreferred:'Old Leads Referred', oldupdated:'Old Leads Updated'};
+const STAT_FILTER_LABELS = {walkins:'Walk-ins', crosssell:'Cross-sell Referrals', oldreferred:'Old Leads Referred', oldupdated:'Old Leads Updated', revisits:'Revisits'};
 function statFilterLeads(key, targetDate){
   if(key==='walkins') return walkinsAddedTodayLeads(targetDate);
   if(key==='crosssell') return crossSellReferralsTodayLeads(targetDate);
   if(key==='oldreferred') return oldLeadsReferredTodayLeads(targetDate);
   if(key==='oldupdated') return oldLeadsUpdatedTodayLeads(targetDate);
+  if(key==='revisits') return revisitEventsToday(targetDate).map(e=>e.lead);
   return null;
 }
 function statBox(count, label, key, activeKey){
@@ -5322,7 +5323,17 @@ function viewReports(){
   const groups = groupTodayActivityByLead();
 
   let visitGroups;
-  if(DAILY_STAT_FILTER){
+  if(DAILY_STAT_FILTER==='revisits'){
+    // Built straight from today's revisit events, not from groupTodayActivityByLead
+    // — flagging a revisit is its own thing, not a status-change log entry, so it
+    // wouldn't show up there at all.
+    const byLead = new Map();
+    revisitEventsToday(today).forEach(({lead,a,rv})=>{
+      if(!byLead.has(lead.id)) byLead.set(lead.id, {lead, revisits:[]});
+      byLead.get(lead.id).revisits.push({a,rv});
+    });
+    visitGroups = Array.from(byLead.values());
+  } else if(DAILY_STAT_FILTER){
     // Show everything that happened today for the matching leads — including a
     // follow-up call, not just a visit/status change — otherwise the card list
     // silently shows fewer leads than the stat number says matched. The one
@@ -5357,12 +5368,23 @@ function viewReports(){
     ${statBox(walkinsAddedTodayCount(), 'Walk-ins Today', 'walkins', DAILY_STAT_FILTER)}
     ${statBox(crossSellReferralsTodayCount(), 'Cross-sell Referrals', 'crosssell', DAILY_STAT_FILTER)}
     ${statBox(oldLeadsReferredTodayCount(), 'Old Leads Referred', 'oldreferred', DAILY_STAT_FILTER)}
-    ${statBox(oldLeadsUpdatedTodayCount(), 'Old Leads Updated', 'oldupdated', DAILY_STAT_FILTER)}
-    <div class="stat"><div class="n">${revisitsTodayCount()}</div><div class="l">Revisits Today</div></div>
+    ${statBox(revisitsTodayCount(), 'Revisits Today', 'revisits', DAILY_STAT_FILTER)}
   </div>
   ${DAILY_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[DAILY_STAT_FILTER]}</b> — <a href="#" id="clearDailyStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
   ${visitGroups.length===0 ? `<div class="empty">${DAILY_STAT_FILTER ? 'Nothing matches this filter.' : 'No visits logged yet today.'}</div>` :
-    visitGroups.map(g=>`
+    visitGroups.map(g=> g.revisits ? `
+      <div class="card">
+        <div class="lead-name">${esc(g.lead.name)}${categoryBadgesFor(g.lead.assignments)}</div>
+        <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
+        ${g.revisits.map(({a,rv})=>`
+          <div class="card-row" style="align-items:flex-start;margin-bottom:6px;">
+            <div class="lead-meta">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}${rv.note?` — "${esc(rv.note)}"`:''}<div class="meta">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div></div>
+            <span class="badge" style="flex-shrink:0;${rv.resolvedAt?'background:var(--ok-bg);color:var(--ok);':'background:var(--bad-bg);color:var(--bad);'}">${rv.resolvedAt?'Updated':'Pending Update'}</span>
+          </div>`).join('')}
+        <div class="row-btns">
+          <button class="btn btn-ghost btn-sm" data-open-lead="${g.lead.id}">View Full Detail</button>
+        </div>
+      </div>` : `
       <div class="card">
         <div class="lead-name">${esc(g.lead.name)}${categoryBadgesFor(g.lead.assignments)}</div>
         <div class="lead-meta" style="margin-bottom:6px;">${esc(g.lead.phone)}${callIcon(g.lead.phone)}${whatsappIcon(g.lead.phone)}</div>
@@ -5380,25 +5402,6 @@ function viewReports(){
       </div>`).join('')}
 
   ${autoCallScorecardHtml(today, today, 'daily')}
-
-  <div class="section-title" style="margin-top:20px;">🔁 Revisits Today</div>
-  ${(()=>{
-    const events = revisitEventsToday(today);
-    if(!events.length) return `<div class="empty">No revisits flagged today.</div>`;
-    return events.map(({lead,a,rv})=>`
-      <div class="card">
-        <div class="card-row">
-          <div>
-            <div class="lead-name">${esc(lead.name)}</div>
-            <div class="lead-meta">${esc(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
-            <div class="lead-meta">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}${rv.note?` — "${esc(rv.note)}"`:''}</div>
-            <div class="lead-meta">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div>
-          </div>
-          <span class="badge" style="${rv.resolvedAt?'background:var(--ok-bg);color:var(--ok);':'background:var(--bad-bg);color:var(--bad);'}">${rv.resolvedAt?'Updated':'Pending Update'}</span>
-        </div>
-        <div class="row-btns"><button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View</button></div>
-      </div>`).join('');
-  })()}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Due Today (Pending + Already Called)</div>
   <select id="followupTodayDeptFilter" style="margin-bottom:10px;">

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261004050815';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261004052539';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -301,6 +301,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-firestore-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.15.0/firebase-storage-compat.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script>
 /* ---------------- Firebase config ---------------- */
@@ -313,6 +314,47 @@ const firebaseConfig = {
   appId: "1:1098083784943:web:2ff1da8ec50a2b9bae231a"
 };
 const USE_FIREBASE = typeof firebase !== 'undefined';
+// Real push notifications (arrive even with the app/tab closed), via Firebase
+// Cloud Messaging + a service worker — unlike the old in-page
+// `new Notification(...)` calls elsewhere in this file, which only ever fire
+// while the app is actually open in a tab. This is the "Web Push
+// certificate" key pair from Firebase Console → Project Settings →
+// Cloud Messaging → Web configuration → Generate key pair. Until that's
+// filled in here, push setup silently does nothing (everyone shows as
+// "Push: Off" in Manage Logins) — nothing else about the app depends on it.
+const VAPID_PUBLIC_KEY = '';
+let MESSAGING_INSTANCE = null;
+function getMessagingInstance(){
+  if(!USE_FIREBASE || !('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  if(!MESSAGING_INSTANCE){ try{ MESSAGING_INSTANCE = firebase.messaging(); }catch(e){ return null; } }
+  return MESSAGING_INSTANCE;
+}
+// Registers the service worker, asks for notification permission, and if
+// granted, saves this device's FCM token onto the logged-in person's staff
+// record so a future server-side trigger can push to them directly.
+async function enablePushNotifications(){
+  if(!VAPID_PUBLIC_KEY || !SESSION) return;
+  try{
+    const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    const perm = await Notification.requestPermission();
+    if(perm!=='granted') return;
+    const messaging = getMessagingInstance();
+    if(!messaging) return;
+    const token = await messaging.getToken({vapidKey: VAPID_PUBLIC_KEY, serviceWorkerRegistration: reg});
+    if(token) await savePushTokenForCurrentUser(token);
+  }catch(e){ console.error('Push notification setup failed', e); }
+}
+async function savePushTokenForCurrentUser(token){
+  if(!SESSION) return;
+  const list = SESSION.role==='head' ? STAFF.heads : staffListForRole(SESSION.role);
+  const person = list && list.find(p=>p.name===SESSION.name);
+  if(!person) return;
+  if(!Array.isArray(person.fcmTokens)) person.fcmTokens = [];
+  if(!person.fcmTokens.includes(token)){
+    person.fcmTokens.push(token);
+    await saveStaff(STAFF);
+  }
+}
 // Bumped automatically on every push (see the push script) — used purely to
 // detect when a newer version is live, so people don't need to manually
 // reinstall the app to pick up a fix. Never touch this by hand.
@@ -567,12 +609,16 @@ function normalizeStaffObj(s){
         // assistant can only ever help within their own team.
         p.helping = p.helping.filter(h=> h.team===k);
       }
+      // Push-notification device tokens (Firebase Cloud Messaging) — a person
+      // can have more than one if they've logged in on more than one device.
+      if(!Array.isArray(p.fcmTokens)) p.fcmTokens = [];
     });
   });
   if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
   if(!Array.isArray(s.heads) || s.heads.length!==3){
     s.heads = defaultStaff().heads;
   }
+  s.heads.forEach(p=>{ if(!Array.isArray(p.fcmTokens)) p.fcmTokens = []; });
   return s;
 }
 async function loadStaff(){
@@ -1163,6 +1209,9 @@ function checkAndNotifyDueToday(){
 async function loginAs(role, name){
   const isAssistantAcct = role!=='head' && role!=='reception' && (staffListForRole(role).find(p=>p.name===name)||{}).isAssistant;
   SESSION = {role, name, isAssistant: !!isAssistantAcct};
+  // Not awaited — it involves a permission prompt and shouldn't hold up login.
+  // No-ops entirely until VAPID_PUBLIC_KEY above is filled in.
+  enablePushNotifications();
   KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
   ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : (SESSION.isAssistant ? 'route' : 'myleads'));
   ACTIVE_SUBTAB = null;
@@ -3516,6 +3565,14 @@ function bindConnectionCardHandlers(){
 function lastLoginText(p){
   return p.lastLogin ? `Last login: ${fmtDateTime(p.lastLogin)}` : `Last login: never`;
 }
+// Whether this person has at least one device registered for real push
+// notifications (Firebase Cloud Messaging) — separate from browser
+// notification permission itself, which isn't visible to us; this is the
+// closest proxy: if they never got a token saved, push can't reach them.
+function pushStatusHtml(p){
+  const on = p.fcmTokens && p.fcmTokens.length;
+  return `<div class="lead-meta">${on ? `🔔 Push notifications: <b style="color:var(--ok);">On</b> (${p.fcmTokens.length} device${p.fcmTokens.length>1?'s':''})` : `🔕 Push notifications: <b style="color:var(--bad);">Off</b>`}</div>`;
+}
 function viewManageLogins(){
   const depts = ['reception','tiles','sanitary','kitchen','windows'];
   return `
@@ -3546,6 +3603,7 @@ function viewManageLogins(){
         <div>
           <div class="lead-name" style="font-size:14px;">${esc(p.name)}</div>
           <div class="lead-meta">${lastLoginText(p)}</div>
+          ${pushStatusHtml(p)}
         </div>
         <div class="row-btns" style="margin-top:0;">
           <button class="btn btn-ghost btn-sm renameHeadBtn" data-name="${esc(p.name)}">Rename</button>
@@ -3563,6 +3621,7 @@ function viewManageLogins(){
           <div>
             <div class="lead-name" style="font-size:14px;">${esc(p.name)} ${p.isAssistant?'<span class="badge badge-followup" style="margin-left:4px;">Assistant</span>':''}</div>
             <div class="lead-meta">${lastLoginText(p)}</div>
+            ${pushStatusHtml(p)}
             ${p.isAssistant ? `<div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>` : ''}
           </div>
           <div class="row-btns" style="margin-top:0;">

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261003095743';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261004045752';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -2237,6 +2237,9 @@ function viewAddLead(){
     <select id="newLeadSource">
       ${SOURCE_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
     </select>
+    <label>Date added</label>
+    <input type="date" id="newLeadDate" max="${todayStr()}" value="${todayStr()}">
+    <div class="lead-meta" style="margin-top:-6px;margin-bottom:10px;">Leave as today, or pick an earlier date if you're logging a walk-in after the fact.</div>
     <div id="newLeadReferenceWrap" class="hidden">
       <label>Name of reference</label>
       <input type="text" id="newLeadReferenceName" placeholder="Who referred this customer?">
@@ -6213,6 +6216,19 @@ function bindDynamicHandlers(){
       const referenceName = source==='Reference' ? document.getElementById('newLeadReferenceName').value.trim() : '';
       const marketingPersonName = source==='Physical Marketing' ? document.getElementById('newLeadMarketingPerson').value.trim() : '';
       if(!name || !phone){ toast('Name and phone are required'); return; }
+      // Backdating: lets Reception/salespeople log a walk-in after the fact so it
+      // lands on the day it actually happened (for daily counts, date-range
+      // filters, etc.) instead of today. Keeps the current time-of-day so it
+      // doesn't look like it arrived at midnight. Future dates aren't allowed.
+      const dateInput = document.getElementById('newLeadDate');
+      const chosenDate = dateInput ? dateInput.value : '';
+      if(chosenDate && chosenDate > todayStr()){ toast('Date added can\'t be in the future'); return; }
+      let createdAtIso = new Date().toISOString();
+      if(chosenDate && chosenDate !== todayStr()){
+        const now = new Date();
+        const [y,m,d] = chosenDate.split('-').map(Number);
+        createdAtIso = new Date(y, m-1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+      }
       // Same phone number already exists — prompt before creating a possible duplicate.
       const dupMatches = findLeadsByPhone(phone);
       if(dupMatches.length){
@@ -6224,7 +6240,7 @@ function bindDynamicHandlers(){
       const referPerson = SESSION.role==='head' ? (document.getElementById('newLeadPersonSel')?.value||'') : '';
       const lead = {
         id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName,
-        createdAt: new Date().toISOString(), createdBy: SESSION.name,
+        createdAt: createdAtIso, createdBy: SESSION.name,
         receptionLog:[],
         assignments: isSalesAdding ? [{
           id: uid(), team: SESSION.role, assignedAt: new Date().toISOString(), assignedBy: SESSION.name,

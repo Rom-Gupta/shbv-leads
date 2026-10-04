@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261004052539';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261004053255';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -322,7 +322,7 @@ const USE_FIREBASE = typeof firebase !== 'undefined';
 // Cloud Messaging → Web configuration → Generate key pair. Until that's
 // filled in here, push setup silently does nothing (everyone shows as
 // "Push: Off" in Manage Logins) — nothing else about the app depends on it.
-const VAPID_PUBLIC_KEY = '';
+const VAPID_PUBLIC_KEY = 'BN9DGTFJpv6v_vy_5EVNrESKJQ31xXaBnpUABFKz2itTMQTZfSE78DujjL2lBcz_1ke0YAcwWARbuh59hJJat08';
 let MESSAGING_INSTANCE = null;
 function getMessagingInstance(){
   if(!USE_FIREBASE || !('serviceWorker' in navigator) || !('PushManager' in window)) return null;

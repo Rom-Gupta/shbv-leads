@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261004060207';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261004060840';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5368,6 +5368,7 @@ function viewReports(){
     ${statBox(walkinsAddedTodayCount(), 'Walk-ins Today', 'walkins', DAILY_STAT_FILTER)}
     ${statBox(crossSellReferralsTodayCount(), 'Cross-sell Referrals', 'crosssell', DAILY_STAT_FILTER)}
     ${statBox(oldLeadsReferredTodayCount(), 'Old Leads Referred', 'oldreferred', DAILY_STAT_FILTER)}
+    ${statBox(oldLeadsUpdatedTodayCount(), 'Old Leads Updated', 'oldupdated', DAILY_STAT_FILTER)}
     ${statBox(revisitsTodayCount(), 'Revisits Today', 'revisits', DAILY_STAT_FILTER)}
   </div>
   ${DAILY_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[DAILY_STAT_FILTER]}</b> — <a href="#" id="clearDailyStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}

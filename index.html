@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261004060840';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261005092738';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5403,6 +5403,26 @@ function viewReports(){
       </div>`).join('')}
 
   ${autoCallScorecardHtml(today, today, 'daily')}
+
+  <div class="section-title" style="margin-top:20px;">🔁 Revisits Today</div>
+  <div class="lead-meta" style="margin-bottom:10px;">Always shown here — no need to click the stat tile above.</div>
+  ${(()=>{
+    const events = revisitEventsToday(today);
+    if(!events.length) return `<div class="empty">No revisits flagged today.</div>`;
+    return events.map(({lead,a,rv})=>`
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="lead-name">${esc(lead.name)}</div>
+            <div class="lead-meta">${esc(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+            <div class="lead-meta">${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}${rv.note?` — "${esc(rv.note)}"`:''}</div>
+            <div class="lead-meta">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div>
+          </div>
+          <span class="badge" style="${rv.resolvedAt?'background:var(--ok-bg);color:var(--ok);':'background:var(--bad-bg);color:var(--bad);'}">${rv.resolvedAt?'Updated':'Pending Update'}</span>
+        </div>
+        <div class="row-btns"><button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View</button></div>
+      </div>`).join('');
+  })()}
 
   <div class="section-title" style="margin-top:20px;">Follow-ups Due Today (Pending + Already Called)</div>
   <select id="followupTodayDeptFilter" style="margin-bottom:10px;">

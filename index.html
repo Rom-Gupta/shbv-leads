@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261006054645';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261006055610';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1710,14 +1710,21 @@ function receptionMarkedLost(l){
 function receptionActionableLeads(){
   return LEADS.filter(l=> (!leadHasAssignments(l) && !receptionMarkedLost(l)) || receptionHasPendingFollowup(l));
 }
+// Single source of truth for "is Reception due to call this lead today" — used
+// by Reception's own badge AND Head's Daily Report, so the two can't silently
+// drift apart the way they did when each had its own copy of this logic.
+function receptionDueTodayPredicate(l){
+  if(l.receptionLog && l.receptionLog.length){
+    const last = l.receptionLog[l.receptionLog.length-1];
+    return last.status==='followup' && isDueToday(last.nextFollowUp);
+  }
+  return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
+}
+function receptionDueTodayLeads(){
+  return receptionActionableLeads().filter(receptionDueTodayPredicate);
+}
 function receptionDueTodayCount(){
-  return receptionActionableLeads().filter(l=>{
-    if(l.receptionLog && l.receptionLog.length){
-      const last = l.receptionLog[l.receptionLog.length-1];
-      return last.status==='followup' && isDueToday(last.nextFollowUp);
-    }
-    return !leadHasAssignments(l); // never contacted yet, and still unassigned — always "due"
-  }).length;
+  return receptionDueTodayLeads().length;
 }
 // Count of leads for a given source that actually show up in that source's tab
 // — reuses the exact same filter as the list itself (receptionActionableLeads),
@@ -5038,19 +5045,22 @@ function pendingDueTodayGroups(){
     if(!map.has(l.id)) map.set(l.id, {lead:l, entries:[]});
     map.get(l.id).entries.push(entry);
   }
-  LEADS.forEach(l=>{
-    if(l.receptionLog && l.receptionLog.length){
-      const last = l.receptionLog[l.receptionLog.length-1];
-      if(last.status==='followup' && isDueToday(last.nextFollowUp) && last.timestamp.slice(0,10)!==today){
-        push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp, kind:last.kind});
-      }
-    } else if(!leadHasAssignments(l) && !receptionMarkedLost(l)){
-      // Never contacted at all, still unassigned — Reception's own "Due Today"
-      // badge (receptionDueTodayCount) treats this as due regardless of the
-      // date it was added, since nobody's called them yet. Mirrored here so
-      // Head's "Follow-ups Due Today" matches what Reception actually sees.
+  // Reception: pull straight from the same lead set Reception's own "Due Today"
+  // badge uses (receptionDueTodayLeads), instead of re-deriving the condition
+  // here — two copies of the same logic is exactly how these drifted apart.
+  receptionDueTodayLeads().forEach(l=>{
+    const last = l.receptionLog && l.receptionLog.length ? l.receptionLog[l.receptionLog.length-1] : null;
+    // A lead whose qualifying log entry was itself written today already shows
+    // up via the "logged today" bucket (groupTodayActivityByLead) — skip it
+    // here to avoid listing it twice.
+    if(last && last.timestamp.slice(0,10)===today) return;
+    if(last){
+      push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp, kind:last.kind});
+    } else {
       push(l, {team:'Reception', salesperson:null, referredBy:null, author:l.createdBy||'Reception', remarks:'Not yet contacted since being added.', status:'pending-due', time:l.createdAt, nextFollowUp:null, kind:null});
     }
+  });
+  LEADS.forEach(l=>{
     (l.assignments||[]).forEach(a=>{
       if(isDueToday(a.nextFollowUp) && a.status!=='sale' && a.status!=='lost'){
         const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261006055610';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261006060453';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5050,10 +5050,15 @@ function pendingDueTodayGroups(){
   // here — two copies of the same logic is exactly how these drifted apart.
   receptionDueTodayLeads().forEach(l=>{
     const last = l.receptionLog && l.receptionLog.length ? l.receptionLog[l.receptionLog.length-1] : null;
-    // A lead whose qualifying log entry was itself written today already shows
-    // up via the "logged today" bucket (groupTodayActivityByLead) — skip it
-    // here to avoid listing it twice.
-    if(last && last.timestamp.slice(0,10)===today) return;
+    // Always list every lead receptionDueTodayLeads() returns — this is the
+    // exact same set Reception's own "Due Today" badge counts, so the
+    // "Pending — Not Yet Called" filter must show all of them with no
+    // exceptions, or the two numbers drift apart again. (Previously this
+    // skipped a lead if its last log entry was written today, to avoid it
+    // appearing in both this bucket and "Already Called Today" — but that
+    // skip silently dropped leads from this count whenever a same-day
+    // re-schedule landed back on today's date, which is exactly the gap
+    // that kept showing up as "still not 53".)
     if(last){
       push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp, kind:last.kind});
     } else {

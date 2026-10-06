@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261005092738';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261006054645';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5044,6 +5044,12 @@ function pendingDueTodayGroups(){
       if(last.status==='followup' && isDueToday(last.nextFollowUp) && last.timestamp.slice(0,10)!==today){
         push(l, {team:'Reception', salesperson:null, referredBy:null, author:last.author, remarks:last.remarks, status:'pending-due', time:last.timestamp, nextFollowUp:last.nextFollowUp, kind:last.kind});
       }
+    } else if(!leadHasAssignments(l) && !receptionMarkedLost(l)){
+      // Never contacted at all, still unassigned — Reception's own "Due Today"
+      // badge (receptionDueTodayCount) treats this as due regardless of the
+      // date it was added, since nobody's called them yet. Mirrored here so
+      // Head's "Follow-ups Due Today" matches what Reception actually sees.
+      push(l, {team:'Reception', salesperson:null, referredBy:null, author:l.createdBy||'Reception', remarks:'Not yet contacted since being added.', status:'pending-due', time:l.createdAt, nextFollowUp:null, kind:null});
     }
     (l.assignments||[]).forEach(a=>{
       if(isDueToday(a.nextFollowUp) && a.status!=='sale' && a.status!=='lost'){

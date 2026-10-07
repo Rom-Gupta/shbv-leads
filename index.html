@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261006060453';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261007164059';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3940,13 +3940,14 @@ let WEEK_RANGE = null;
 let CUSTOM_REPORT_DATE = null;
 let DAILY_STAT_FILTER = null; // 'walkins' | 'crosssell' | 'oldreferred' | 'oldupdated' | null
 let CUSTOM_STAT_FILTER = null;
-const STAT_FILTER_LABELS = {walkins:'Walk-ins', crosssell:'Cross-sell Referrals', oldreferred:'Old Leads Referred', oldupdated:'Old Leads Updated', revisits:'Revisits'};
+const STAT_FILTER_LABELS = {walkins:'Walk-ins', crosssell:'Cross-sell Referrals', oldreferred:'Old Leads Referred', oldupdated:'Old Leads Updated', revisits:'Revisits', saledone:'Sale Done'};
 function statFilterLeads(key, targetDate){
   if(key==='walkins') return walkinsAddedTodayLeads(targetDate);
   if(key==='crosssell') return crossSellReferralsTodayLeads(targetDate);
   if(key==='oldreferred') return oldLeadsReferredTodayLeads(targetDate);
   if(key==='oldupdated') return oldLeadsUpdatedTodayLeads(targetDate);
   if(key==='revisits') return revisitEventsToday(targetDate).map(e=>e.lead);
+  if(key==='saledone') return salesDoneTodayLeads(targetDate);
   return null;
 }
 function statBox(count, label, key, activeKey){
@@ -5020,6 +5021,18 @@ function oldLeadsUpdatedTodayLeads(targetDate){
   return out;
 }
 function oldLeadsUpdatedTodayCount(targetDate){ return oldLeadsUpdatedTodayLeads(targetDate).length; }
+// Every lead with at least one assignment marked "Sale Done" today (deduped
+// per lead — a lead with two departments both selling today still counts once).
+function salesDoneTodayLeads(targetDate){
+  const today = targetDate || todayStr();
+  const out = [];
+  LEADS.forEach(l=>{
+    const soldToday = (l.assignments||[]).some(a=> (a.log||[]).some(log=> log.status==='sale' && log.timestamp.slice(0,10)===today));
+    if(soldToday) out.push(l);
+  });
+  return out;
+}
+function salesDoneTodayCount(targetDate){ return salesDoneTodayLeads(targetDate).length; }
 // 5) Every revisit Reception flagged on the given date (not grouped by lead —
 // a customer coming back 2-3 times should count that many times), each tagged
 // with whether the salesperson has updated it yet.
@@ -5391,6 +5404,7 @@ function viewReports(){
     ${statBox(oldLeadsReferredTodayCount(), 'Old Leads Referred', 'oldreferred', DAILY_STAT_FILTER)}
     ${statBox(oldLeadsUpdatedTodayCount(), 'Old Leads Updated', 'oldupdated', DAILY_STAT_FILTER)}
     ${statBox(revisitsTodayCount(), 'Revisits Today', 'revisits', DAILY_STAT_FILTER)}
+    ${statBox(salesDoneTodayCount(), 'Sale Done', 'saledone', DAILY_STAT_FILTER)}
   </div>
   ${DAILY_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[DAILY_STAT_FILTER]}</b> — <a href="#" id="clearDailyStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
   ${visitGroups.length===0 ? `<div class="empty">${DAILY_STAT_FILTER ? 'Nothing matches this filter.' : 'No visits logged yet today.'}</div>` :

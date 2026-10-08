@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261007164413';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261008095805';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5647,15 +5647,27 @@ function renderLeadDetail(lead, focusAssignId, mode){
   if(isReception){
     if(mode!=='refer'){
       if(isPendingFeedbackCall){
-        // Feedback calls are a one-off courtesy check-in, not an ongoing follow-up —
-        // no status to pick, no next date to schedule. Just log what they said and
-        // it's done: resolves off Reception's queue immediately.
+        // Most feedback calls really are a one-off courtesy check-in — but
+        // sometimes the customer says something that needs a real follow-up
+        // (e.g. "I'll visit in 2-3 days" for a sale that was actually lost
+        // elsewhere, or a complaint that needs a callback). Same pattern as
+        // the Cross-Sell Call form below: an outcome picker, with a next-call
+        // date that only appears — and is required — when it's needed.
         html += `
         <div class="assign-block">
           <div class="section-title" style="margin-top:0;">Log Feedback Call</div>
+          <label>Outcome</label>
+          <select id="feedbackCallOutcome">
+            <option value="done">Logged — done, no follow-up needed</option>
+            <option value="followup">Interested / needs a callback — schedule follow-up</option>
+          </select>
+          <div id="feedbackFollowupDateWrap" class="hidden">
+            <label>Next call date <span style="color:var(--bad);">*</span></label>
+            <input type="date" id="feedbackFollowupDate" value="">
+          </div>
           <label>Remarks</label>
           <textarea id="feedbackRemarks" placeholder="What did the customer say?"></textarea>
-          <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save Feedback & Close</button>
+          <button class="btn btn-primary btn-sm" id="saveFeedbackBtn">Save</button>
         </div>`;
       } else if(isPendingCrossSellCall){
         // Four real outcomes: fully settled (logged, done — if interested,
@@ -7112,24 +7124,39 @@ function bindModalHandlers(lead){
   const saveFeedbackBtn = document.getElementById('saveFeedbackBtn');
   if(saveFeedbackBtn){
     saveFeedbackBtn.addEventListener('click', withSavingState(saveFeedbackBtn, async ()=>{
+      const outcome = document.getElementById('feedbackCallOutcome').value;
       const remarks = document.getElementById('feedbackRemarks').value.trim();
       if(!remarks){ toast('Add a remark'); return; }
+      let nextDate = null;
+      if(outcome==='followup'){
+        nextDate = document.getElementById('feedbackFollowupDate').value;
+        if(!nextDate){ toast('Pick a next call date'); return; }
+      }
       if(!lead.receptionLog) lead.receptionLog=[];
       // Carry the kind (feedback-sale / feedback-lost) forward onto the
       // resolution entry too — otherwise there'd be no reliable way to count
       // "how many feedback calls were actually resolved this week," since the
       // only entry with a kind tag would be the pending one that's about to
-      // disappear from the queue.
+      // disappear from the queue. Still carried forward when it stays open as
+      // a follow-up, so it keeps showing in the Feedback bucket, not a plain one.
       const pendingKind = lead.receptionLog.length ? lead.receptionLog[lead.receptionLog.length-1].kind : null;
       lead.receptionLog.push({
         timestamp:new Date().toISOString(), author:SESSION.name, remarks,
-        status:'no-followup', nextFollowUp:null, kind:pendingKind
+        status: outcome==='followup' ? 'followup' : 'no-followup',
+        nextFollowUp: nextDate, kind:pendingKind
       });
       await saveLeads(LEADS);
-      toast('Feedback logged');
+      toast(outcome==='followup' ? 'Follow-up scheduled' : 'Feedback logged');
       closeModal();
       renderApp();
     }));
+  }
+  const feedbackOutcomeSel = document.getElementById('feedbackCallOutcome');
+  const feedbackFollowupWrap = document.getElementById('feedbackFollowupDateWrap');
+  if(feedbackOutcomeSel){
+    feedbackOutcomeSel.addEventListener('change', ()=>{
+      feedbackFollowupWrap.classList.toggle('hidden', feedbackOutcomeSel.value!=='followup');
+    });
   }
 
   const saveCrossSellCallBtn = document.getElementById('saveCrossSellCallBtn');

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261008095805';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261008105628';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1691,11 +1691,12 @@ function receptionHasPendingFollowup(l){
   const last = l.receptionLog[l.receptionLog.length-1];
   if(last.status!=='followup') return false;
   if(!leadHasAssignments(l)) return true; // genuinely Reception's own follow-up, pre-referral
-  // Once referred, only a recognized auto-call type still has an actionable
-  // form (Log Feedback Call / Log Cross-Sell Call) — a leftover generic
-  // follow-up entry from before this restriction existed has no form left to
-  // resolve it with, so it shouldn't keep the lead stuck in the queue.
-  return last.kind==='feedback-sale' || last.kind==='feedback-lost' || last.kind==='cross-sell-auto';
+  // Once referred, only a recognized call type still has an actionable form
+  // (Log Feedback Call / Log Cross-Sell Call / the manual Add Follow-up Note
+  // form) — a leftover generic follow-up entry from before this restriction
+  // existed has no form left to resolve it with, so it shouldn't keep the
+  // lead stuck in the queue.
+  return last.kind==='feedback-sale' || last.kind==='feedback-lost' || last.kind==='cross-sell-auto' || last.kind==='manual-followup';
 }
 // Leads reception is actively responsible for right now: anything not yet referred,
 // PLUS anything (even already referred/sold) where reception itself has a pending
@@ -5696,14 +5697,24 @@ function renderLeadDetail(lead, focusAssignId, mode){
           <button class="btn btn-primary btn-sm" id="saveCrossSellCallBtn" data-slot="${inferredSlot||''}">Save</button>
         </div>`;
         })();
-      } else if(!leadHasAssignments(lead)){
+      } else {
+        // Covers two cases with the same form: a lead never yet referred
+        // (Reception's own ongoing follow-up), AND a referred lead whose
+        // reception side is otherwise closed out (no pending feedback or
+        // cross-sell call) — e.g. a feedback call that was logged "done" in
+        // the past, before Reception had any way to reopen it. Without this,
+        // a lead like that had no way back into Reception's follow-up queue
+        // at all. Saved with kind 'manual-followup' when the lead is already
+        // referred, so it round-trips back to this same form to resolve,
+        // the same way a feedback/cross-sell call does.
+        const referred = leadHasAssignments(lead);
         html += `
         <div class="assign-block">
-          <div class="section-title" style="margin-top:0;">Add Follow-up / Update</div>
+          <div class="section-title" style="margin-top:0;">${referred ? 'Add Follow-up Note' : 'Add Follow-up / Update'}</div>
           <label>Status</label>
           <select id="recStatus">
             <option value="followup">Interested – schedule follow-up</option>
-            <option value="lost">Not interested / Loose Lead</option>
+            <option value="lost">${referred ? 'No further follow-up needed' : 'Not interested / Loose Lead'}</option>
           </select>
           <div id="recFollowupDateWrap">
             <label>Next call date <span style="color:var(--bad);">*</span></label>
@@ -5711,7 +5722,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
           </div>
           <label>Remarks</label>
           <textarea id="recRemarks" placeholder="What did the customer say?"></textarea>
-          <button class="btn btn-primary btn-sm" id="saveRecLogBtn">Save Note</button>
+          <button class="btn btn-primary btn-sm" id="saveRecLogBtn" data-referred="${referred?'1':''}">Save Note</button>
         </div>`;
       }
       html += `
@@ -7104,12 +7115,18 @@ function bindModalHandlers(lead){
       const status = document.getElementById('recStatus').value;
       const remarks = document.getElementById('recRemarks').value.trim();
       const nextDate = document.getElementById('recNextDate').value;
+      const referred = saveRecLogBtn.dataset.referred==='1';
       if(!remarks){ toast('Add a remark'); return; }
       if(status==='followup' && !nextDate){ toast('Choose a follow-up date'); return; }
       if(!lead.receptionLog) lead.receptionLog=[];
       lead.receptionLog.push({
         timestamp:new Date().toISOString(), author:SESSION.name, remarks, status,
-        nextFollowUp: status==='followup' ? nextDate : null
+        nextFollowUp: status==='followup' ? nextDate : null,
+        // Tagging a referred lead's manual note lets it round-trip back to
+        // this same form next time, the same way a feedback/cross-sell call
+        // does — otherwise, once referred, an untagged 'followup' entry has
+        // no actionable form left to resolve it with (see receptionHasPendingFollowup).
+        kind: (referred && status==='followup') ? 'manual-followup' : null
       });
       await saveLeads(LEADS);
       toast('Note saved');

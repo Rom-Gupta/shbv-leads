@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261011062358';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261011080818';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5803,8 +5803,8 @@ function renderLeadDetail(lead, focusAssignId, mode){
             <button class="btn btn-brass btn-sm confirmRevisitBtn" data-assign="${a.id}" data-lead-id="${lead.id}">Confirm Revisit</button>
           </div>
         ` : ''}
-        ${mine && a.status!=='sale' && a.status!=='lost' ? `
-          <button class="btn btn-ghost btn-sm toggleShareBtn" data-assign="${a.id}" style="margin-top:6px;">🔄 Share with Teammate</button>
+        ${(mine || isHead) && a.status!=='sale' && a.status!=='lost' ? `
+          <button class="btn btn-ghost btn-sm toggleShareBtn" data-assign="${a.id}" style="margin-top:6px;">${isHead ? '🔄 Hand off to another salesperson' : '🔄 Share with Teammate'}</button>
           <div class="assign-block hidden" id="shareForm-${a.id}" style="margin-top:8px;">
             <label>Hand this lead to</label>
             <select class="shareTeammateSel" data-assign="${a.id}" data-team="${a.team}">
@@ -6972,7 +6972,7 @@ function bindModalHandlers(lead){
       a.acknowledged = false;
       if(!a.log) a.log = [];
       a.log.push({
-        timestamp:new Date().toISOString(), author:SESSION.name,
+        timestamp:new Date().toISOString(), author:SESSION.role==='head' ? `${SESSION.name} (Head)` : SESSION.name,
         remarks: `Handed off from ${fromPerson} to ${newPerson}${note?`: "${note}"`:''}`,
         status: a.status
       });

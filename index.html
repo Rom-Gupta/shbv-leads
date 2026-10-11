@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261008105628';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261011062358';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1359,6 +1359,18 @@ function assistantAllAssignments(){
 function assistantActiveLeads(){
   return assistantAllAssignments().filter(({a})=> a.status!=='sale' && a.status!=='lost');
 }
+// Kitchen assistants get the same three Active Leads buckets a kitchen
+// salesperson has (Leads / Final Stage / Done Lead), across everyone they help.
+function assistantIsKitchen(){ return !!(SESSION && SESSION.isAssistant && SESSION.role==='kitchen'); }
+function assistantKitchenFinalStageLeads(){
+  return assistantActiveLeads().filter(({a})=> a.team==='kitchen' && a.pipelineStage==='meeting_quotation');
+}
+function assistantKitchenDoneLeads(){
+  return assistantAllAssignments().filter(({a})=> a.team==='kitchen' && a.status==='sale' && a.postSaleStage!=='completed');
+}
+function assistantKitchenPlainLeads(){
+  return assistantActiveLeads().filter(({a})=> !(a.team==='kitchen' && a.pipelineStage==='meeting_quotation'));
+}
 function assistantDueTodayLeads(){
   return assistantAllAssignments().filter(({a})=>
     (a.nextFollowUp && a.status!=='lost' && isDueToday(a.nextFollowUp)) || isMeetingDueOrOverdue(a)
@@ -1768,7 +1780,14 @@ function tabsFor(role){
   ];
   if(SESSION && SESSION.isAssistant) return [
     {id:'route', label:'Leads to Route', badge:()=>assistantRoutingQueue().length},
-    {id:'myleads', label:'Active Leads', badge:()=>assistantActiveLeads().length},
+    assistantIsKitchen()
+      ? {id:'myleads', label:'Active Leads', badge:()=>assistantActiveLeads().length,
+          sub:[
+            {id:'leads', label:'Leads'},
+            {id:'final', label:'Final Stage', badge:()=>assistantKitchenFinalStageLeads().length},
+            {id:'donelead', label:'Done Lead', badge:()=>assistantKitchenDoneLeads().length},
+          ]}
+      : {id:'myleads', label:'Active Leads', badge:()=>assistantActiveLeads().length},
     {id:'due', label:'Due Today', badge:()=>assistantDueTodayLeads().length},
     {id:'allmine', label:'All Leads'},
     {id:'helping', label:'Who I\'m Helping'},
@@ -1879,7 +1898,7 @@ async function renderApp(){
     else area.innerHTML = viewHeadOverview();
   } else if(SESSION.isAssistant){
     if(ACTIVE_TAB==='route') area.innerHTML = viewAssistantRouteQueue();
-    else if(ACTIVE_TAB==='myleads') area.innerHTML = viewAssistantLeads('active');
+    else if(ACTIVE_TAB==='myleads') area.innerHTML = viewAssistantLeads(assistantIsKitchen() && ACTIVE_SUBTAB ? ACTIVE_SUBTAB : 'active');
     else if(ACTIVE_TAB==='due') area.innerHTML = viewAssistantLeads('due');
     else if(ACTIVE_TAB==='allmine') area.innerHTML = viewAssistantAllLeads();
     else if(ACTIVE_TAB==='helping') area.innerHTML = viewAssistantHelping();
@@ -2388,8 +2407,19 @@ function viewAssistantRouteQueue(){
   `;
 }
 function viewAssistantLeads(mode){
-  const pairs = mode==='due' ? assistantDueTodayLeads() : assistantActiveLeads();
   if(!myHelpingList().length) return `<div class="empty">You're not currently helping anyone. Go to "Who I'm Helping" to pick a salesperson.</div>`;
+  if(mode==='final'){
+    const fp = assistantKitchenFinalStageLeads();
+    if(!fp.length) return `<div class="empty">Nothing at Meeting & Quotation stage right now.</div>`;
+    return `<div class="lead-meta" style="margin-bottom:10px;">Quotation's already been given — these need extra follow-up care before the customer's decision slips away.</div>` +
+      fp.map(({lead,a})=>assistantLeadCardWrap(lead,a)).join('');
+  }
+  if(mode==='donelead'){
+    const dp = assistantKitchenDoneLeads();
+    if(!dp.length) return `<div class="empty">No sales closed yet.</div>`;
+    return dp.map(({lead,a})=>`<div class="lead-meta" style="margin-bottom:-6px;font-weight:700;color:var(--brass);">👤 Helping: ${esc(a.salesperson)} — ${TEAM_LABELS[a.team]}</div>` + postSaleCard(lead,a)).join('');
+  }
+  const pairs = mode==='due' ? assistantDueTodayLeads() : (mode==='leads' ? assistantKitchenPlainLeads() : assistantActiveLeads());
   if(!pairs.length) return `<div class="empty">${mode==='due' ? 'Nothing due today.' : 'No active leads right now.'}</div>`;
   return pairs.map(({lead,a})=>assistantLeadCardWrap(lead,a)).join('');
 }
@@ -6178,7 +6208,7 @@ function bindDynamicHandlers(){
       const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
       const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
       if(!a.postSaleLog) a.postSaleLog = [];
-      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:currentLogAuthor(a)});
       resolveRevisit(a);
       if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
         a.postSaleStage = 'completed';
@@ -6268,7 +6298,7 @@ function bindDynamicHandlers(){
         const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
         const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
         if(!a.postSaleLog) a.postSaleLog = [];
-        a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+        a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:currentLogAuthor(a)});
       resolveRevisit(a);
         if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
           a.postSaleStage = 'completed';
@@ -7366,7 +7396,7 @@ function bindModalHandlers(lead){
       const lastDoneIdx = (a.postSaleStage && a.postSaleStage!=='completed') ? POST_SALE_STAGE_ORDER.indexOf(a.postSaleStage) : -1;
       const stageBeingMarked = POST_SALE_STAGE_ORDER[lastDoneIdx+1];
       if(!a.postSaleLog) a.postSaleLog = [];
-      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:SESSION.name});
+      a.postSaleLog.push({stage:stageBeingMarked, completedAt:new Date().toISOString(), nextDate:nextDate||null, remarks:note, author:currentLogAuthor(a)});
       resolveRevisit(a);
       if(lastDoneIdx+1 >= POST_SALE_STAGE_ORDER.length-1){
         a.postSaleStage = 'completed';

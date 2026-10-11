@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261011080818';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261011091539';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -3981,10 +3981,10 @@ function statFilterLeads(key, targetDate){
   if(key==='saledone') return salesDoneTodayLeads(targetDate);
   return null;
 }
-function statBox(count, label, key, activeKey){
+function statBox(count, label, key, activeKey, sub){
   const isActive = activeKey===key;
   return `<div class="stat statClickable${isActive?' statActive':''}" data-stat-key="${key}" style="cursor:pointer;${isActive?`border-color:var(--brass);box-shadow:0 0 0 2px var(--brass);`:''}">
-    <div class="n">${count}</div><div class="l">${label}</div>
+    <div class="n">${count}</div><div class="l">${label}</div>${sub?`<div class="lead-meta" style="margin-top:2px;font-size:11px;">${sub}</div>`:''}
   </div>`;
 }
 function getCustomReportDate(){ if(!CUSTOM_REPORT_DATE) CUSTOM_REPORT_DATE = todayStr(); return CUSTOM_REPORT_DATE; }
@@ -5058,10 +5058,25 @@ function salesDoneTodayLeads(targetDate){
   const today = targetDate || todayStr();
   const out = [];
   LEADS.forEach(l=>{
-    const soldToday = (l.assignments||[]).some(a=> (a.log||[]).some(log=> log.status==='sale' && log.timestamp.slice(0,10)===today));
+    const soldToday = (l.assignments||[]).some(a=> (a.log||[]).some(log=> (log.status==='sale' || log.status==='partial_sale') && log.timestamp.slice(0,10)===today));
     if(soldToday) out.push(l);
   });
   return out;
+}
+// Splits today's purchasing customers into full vs partial sale (a customer with
+// both counts as full), so the tile can show "x full · y partial" under the total.
+function salesDoneBreakdown(targetDate){
+  const today = targetDate || todayStr();
+  let full = 0, partial = 0;
+  salesDoneTodayLeads(targetDate).forEach(l=>{
+    const hasFull = (l.assignments||[]).some(a=> (a.log||[]).some(log=> log.status==='sale' && log.timestamp.slice(0,10)===today));
+    if(hasFull) full++; else partial++;
+  });
+  return {full, partial};
+}
+function salesDoneSubLabel(targetDate){
+  const b = salesDoneBreakdown(targetDate);
+  return `${b.full} full · ${b.partial} partial`;
 }
 function salesDoneTodayCount(targetDate){ return salesDoneTodayLeads(targetDate).length; }
 // 5) Every revisit Reception flagged on the given date (not grouped by lead —
@@ -5365,7 +5380,7 @@ function viewCustomDateReport(){
     ${statBox(oldLeadsReferredTodayCount(targetDate), 'Old Leads Referred', 'oldreferred', CUSTOM_STAT_FILTER)}
     ${statBox(oldLeadsUpdatedTodayCount(targetDate), 'Old Leads Updated', 'oldupdated', CUSTOM_STAT_FILTER)}
     ${statBox(revisitsTodayCount(targetDate), 'Revisits', 'revisits', CUSTOM_STAT_FILTER)}
-    ${statBox(salesDoneTodayCount(targetDate), 'Sale Done', 'saledone', CUSTOM_STAT_FILTER)}
+    ${statBox(salesDoneTodayCount(targetDate), 'Sale Done', 'saledone', CUSTOM_STAT_FILTER, salesDoneSubLabel(targetDate))}
   </div>
   ${CUSTOM_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[CUSTOM_STAT_FILTER]}</b> — <a href="#" id="clearCustomStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
   ${visitGroups.length===0 ? `<div class="empty">${CUSTOM_STAT_FILTER ? 'Nothing matches this filter.' : 'No activity logged on this date.'}</div>` :
@@ -5459,7 +5474,7 @@ function viewReports(){
     ${statBox(oldLeadsReferredTodayCount(), 'Old Leads Referred', 'oldreferred', DAILY_STAT_FILTER)}
     ${statBox(oldLeadsUpdatedTodayCount(), 'Old Leads Updated', 'oldupdated', DAILY_STAT_FILTER)}
     ${statBox(revisitsTodayCount(), 'Revisits Today', 'revisits', DAILY_STAT_FILTER)}
-    ${statBox(salesDoneTodayCount(), 'Sale Done', 'saledone', DAILY_STAT_FILTER)}
+    ${statBox(salesDoneTodayCount(), 'Sale Done', 'saledone', DAILY_STAT_FILTER, salesDoneSubLabel())}
   </div>
   ${DAILY_STAT_FILTER ? `<div class="lead-meta" style="margin-bottom:10px;">Showing only <b>${STAT_FILTER_LABELS[DAILY_STAT_FILTER]}</b> — <a href="#" id="clearDailyStatFilter" style="color:var(--brass);">clear filter</a></div>` : ''}
   ${visitGroups.length===0 ? `<div class="empty">${DAILY_STAT_FILTER ? 'Nothing matches this filter.' : 'No visits logged yet today.'}</div>` :

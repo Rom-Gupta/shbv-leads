@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261015093923';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261015094315';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4380,7 +4380,7 @@ function viewAllLeads(){
   </div>
   <label style="display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12.5px;color:var(--ink-soft);font-weight:600;">
     <input type="checkbox" id="teamMatchAllChk" style="width:auto;margin:0;" ${TEAM_MATCH_ALL?'checked':''}>
-    Must be referred to ALL selected teams (e.g. Tiles and Sanitary both)
+    Match ALL selected teams (untick = match ANY). E.g. Tiles + Sanitary = customers referred to both
   </label>
   <div class="filter-row" style="align-items:center;">
     <label style="margin:0;font-size:12.5px;color:var(--ink-soft);font-weight:600;">Added between:</label>
@@ -4408,33 +4408,67 @@ function teamScopedAssignments(lead, teamArr){
   if(!realTeams.length) return assigns;
   return assigns.filter(a=>realTeams.includes(a.team));
 }
-// Team filter semantics: by default a lead matches if it's with ANY picked team.
-// With "Must be referred to ALL selected teams" ticked, a lead must have a
-// referral in EVERY picked sales team (e.g. Tiles AND Sanitary together).
-// Reception counts as "satisfied" only for a lead not yet referred anywhere.
-let TEAM_MATCH_ALL = false;
-function leadMatchesTeamFilter(l, teamArr){
-  if(!teamArr || !teamArr.length) return true;
-  const hasTeam = t => t==='reception' ? !leadHasAssignments(l) : (l.assignments||[]).some(a=>a.team===t);
-  return (TEAM_MATCH_ALL && teamArr.length>1) ? teamArr.every(hasTeam) : teamArr.some(hasTeam);
+// Team + assignment-level filters (status, salesperson, category, company) are
+// evaluated TOGETHER, per assignment: one referral has to satisfy all of the
+// picked status / salesperson / category / company values at once (so
+// "Pranav + Sale Done" means Pranav's referral is the sold one, not Pranav's
+// visited one plus someone else's sale).
+// Team mode: with 2+ teams picked, "ALL" (default) requires EVERY picked team to
+// have a referral matching those filters (e.g. Tiles AND Sanitary both Sale
+// Done); "ANY" requires at least one. Reception counts as satisfied only for a
+// lead not yet referred anywhere.
+let TEAM_MATCH_ALL = true;
+function assignmentFilterActive(f){
+  return !!((f.status&&f.status.length) || (f.salesperson&&f.salesperson.length) || (f.category&&f.category.length) || (f.company&&f.company.length===1));
+}
+function assignmentMatchesFilters(a, f){
+  if(f.status && f.status.length && !(f.status.includes(a.status) || (f.status.includes('needs_update') && hasPendingRevisit(a)))) return false;
+  if(f.salesperson && f.salesperson.length && !f.salesperson.includes(a.salesperson)) return false;
+  if(f.category && f.category.length && !f.category.includes(a.clientCategory)) return false;
+  if(f.company && f.company.length===1){
+    if(f.company[0]==='yes' && !a.companyReferred) return false;
+    if(f.company[0]==='no' && a.companyReferred) return false;
+  }
+  return true;
+}
+// A lead still with Reception (no referrals) has no assignment to test, so the
+// same filters are checked against its reception side instead.
+function unassignedMatchesFilters(l, f){
+  if(f.status && f.status.length){
+    const last = l.receptionLog && l.receptionLog.length ? l.receptionLog[l.receptionLog.length-1] : null;
+    if(!(last && f.status.includes(last.status))) return false;
+  }
+  if(f.salesperson && f.salesperson.length){
+    if(!(f.salesperson.includes(l.createdBy) || (l.receptionLog||[]).some(log=>f.salesperson.includes(log.author)))) return false;
+  }
+  if(f.category && f.category.length) return false;
+  if(f.company && f.company.length===1 && f.company[0]==='yes') return false;
+  return true;
+}
+function leadMatchesTeamAndAssignmentFilters(l, f){
+  const teams = f.team || [];
+  const active = assignmentFilterActive(f);
+  const assigns = l.assignments || [];
+  const hasA = assigns.length>0;
+  const matchIn = t => assigns.some(a=> (t===null || a.team===t) && assignmentMatchesFilters(a, f));
+  if(!teams.length) return !active || (hasA ? matchIn(null) : unassignedMatchesFilters(l, f));
+  const checks = teams.map(t=> t==='reception' ? (!hasA && (!active || unassignedMatchesFilters(l, f))) : matchIn(t));
+  return (TEAM_MATCH_ALL && teams.length>1) ? checks.every(Boolean) : checks.some(Boolean);
 }
 function applyLeadFiltersExcept(baseList, f, exclude){
   let list = baseList;
-  if(exclude!=='team' && f.team && f.team.length){
-    list = list.filter(l=> leadMatchesTeamFilter(l, f.team));
-  }
-  if(exclude!=='status' && f.status && f.status.length) list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>f.status.includes(a.status) || (f.status.includes('needs_update') && hasPendingRevisit(a))) || (!leadHasAssignments(l) && l.receptionLog?.length && f.status.includes(l.receptionLog[l.receptionLog.length-1].status)));
-  if(exclude!=='salesperson' && f.salesperson && f.salesperson.length) list = list.filter(l=>
-    teamScopedAssignments(l, f.team).some(a=>f.salesperson.includes(a.salesperson)) ||
-    (!leadHasAssignments(l) && (f.salesperson.includes(l.createdBy) || (l.receptionLog||[]).some(log=>f.salesperson.includes(log.author))))
-  );
+  // team / status / salesperson / company / category are evaluated together per
+  // referral (see above); excluding one just blanks that field for this pass.
+  const g = Object.assign({}, f);
+  if(exclude==='team') g.team = [];
+  if(exclude==='status') g.status = [];
+  if(exclude==='salesperson') g.salesperson = [];
+  if(exclude==='company') g.company = [];
+  if(exclude==='category') g.category = [];
+  if((g.team && g.team.length) || assignmentFilterActive(g)) list = list.filter(l=> leadMatchesTeamAndAssignmentFilters(l, g));
+  if(exclude!=='marketing' && f.marketing && f.marketing.length) list = list.filter(l=> f.marketing.includes(l.marketingPersonName));
   // Picking both Yes+No (or neither) for a yes/no filter is the same as not
   // filtering by it at all.
-  if(exclude!=='company' && f.company && f.company.length===1){
-    if(f.company[0]==='yes') list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>a.companyReferred));
-    else list = list.filter(l=> !teamScopedAssignments(l, f.team).some(a=>a.companyReferred));
-  }
-  if(exclude!=='marketing' && f.marketing && f.marketing.length) list = list.filter(l=> f.marketing.includes(l.marketingPersonName));
   if(exclude!=='unreferred' && f.unreferred && f.unreferred.length===1){
     if(f.unreferred[0]==='yes') list = list.filter(l=> !leadHasAssignments(l));
     else list = list.filter(l=> leadHasAssignments(l));
@@ -4444,7 +4478,6 @@ function applyLeadFiltersExcept(baseList, f, exclude){
     const citySet = new Set(f.city.map(c=>c.toLowerCase()));
     list = list.filter(l=> citySet.has((l.city||'').toLowerCase()));
   }
-  if(exclude!=='category' && f.category && f.category.length) list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>f.category.includes(a.clientCategory)));
   // Date range isn't a checklist with options to grey out, so it's always
   // applied (no "exclude" case) — it still needs to narrow what every other
   // filter's cascading options show as valid.
@@ -4523,54 +4556,13 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     const s = search.toLowerCase();
     list = list.filter(l=> l.name.toLowerCase().includes(s) || (l.phone||'').includes(s));
   }
-  if(team && team.length){
-    list = list.filter(l=> leadMatchesTeamFilter(l, team));
-  }
-  if(status && status.length){
-    // Scoped to the selected team(s)' own assignments when a team is also
-    // chosen — otherwise "Tiles: Lost" would also match a lead that's merely
-    // Sale Done in a different department, since that lead has *a* matching
-    // status somewhere, just not in Tiles.
-    list = list.filter(l=> teamScopedAssignments(l, team).some(a=>status.includes(a.status) || (status.includes('needs_update') && hasPendingRevisit(a))) ||
-      (!leadHasAssignments(l) && l.receptionLog?.length && status.includes(l.receptionLog[l.receptionLog.length-1].status)));
-  }
-  if(salesperson && salesperson.length){
-    // Covers both a sales assignment's salesperson AND, for a lead still with
-    // Reception (no assignments yet), whoever added it or logged a reception
-    // note — needed so "Team: Reception" + a reception staff name works too.
-    list = list.filter(l=>
-      teamScopedAssignments(l, team).some(a=>salesperson.includes(a.salesperson)) ||
-      (!leadHasAssignments(l) && (salesperson.includes(l.createdBy) || (l.receptionLog||[]).some(log=>salesperson.includes(log.author))))
-    );
-  }
-  if(companyFilter && companyFilter.length===1){
-    if(companyFilter[0]==='yes') list = list.filter(l=> teamScopedAssignments(l, team).some(a=>a.companyReferred));
-    else list = list.filter(l=> !teamScopedAssignments(l, team).some(a=>a.companyReferred));
-  }
-  if(marketingFilter && marketingFilter.length){
-    list = list.filter(l=> marketingFilter.includes(l.marketingPersonName));
-  }
-  if(unreferredFilter && unreferredFilter.length===1){
-    if(unreferredFilter[0]==='yes') list = list.filter(l=> !leadHasAssignments(l));
-    else list = list.filter(l=> leadHasAssignments(l));
-  }
-  if(sourceFilter && sourceFilter.length){
-    list = list.filter(l=> sourceFilter.includes(l.source));
-  }
-  if(cityFilter && cityFilter.length){
-    const citySet = new Set(cityFilter.map(c=>c.toLowerCase()));
-    list = list.filter(l=> citySet.has((l.city||'').toLowerCase()));
-  }
-  if(categoryFilter && categoryFilter.length){
-    list = list.filter(l=> teamScopedAssignments(l, team).some(a=>categoryFilter.includes(a.clientCategory)));
-  }
-  if(dateFrom){
-    list = list.filter(l=> l.createdAt.slice(0,10) >= dateFrom);
-  }
-  if(dateTo){
-    list = list.filter(l=> l.createdAt.slice(0,10) <= dateTo);
-  }
-  return list;
+  // One shared implementation (applyLeadFiltersExcept) for the results list AND
+  // the greyed-out option logic, so they can never disagree.
+  return applyLeadFiltersExcept(list, {
+    team, status, salesperson, company:companyFilter, marketing:marketingFilter,
+    unreferred:unreferredFilter, source:sourceFilter, city:cityFilter, category:categoryFilter,
+    dateFrom, dateTo
+  }, null);
 }
 function filterLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo){
   const list = computeFilteredLeadsList(baseList, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo);

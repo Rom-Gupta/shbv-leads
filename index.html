@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261011091539';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261015093923';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4378,6 +4378,10 @@ function viewAllLeads(){
     ${msFilterHtml('city', 'All cities', cities.map(c=>({value:c,label:c})))}
     ${msFilterHtml('category', 'Category: All', [{value:'A',label:'A — High priority'},{value:'B',label:'B — Medium priority'},{value:'C',label:'C — Low priority'}])}
   </div>
+  <label style="display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12.5px;color:var(--ink-soft);font-weight:600;">
+    <input type="checkbox" id="teamMatchAllChk" style="width:auto;margin:0;" ${TEAM_MATCH_ALL?'checked':''}>
+    Must be referred to ALL selected teams (e.g. Tiles and Sanitary both)
+  </label>
   <div class="filter-row" style="align-items:center;">
     <label style="margin:0;font-size:12.5px;color:var(--ink-soft);font-weight:600;">Added between:</label>
     <input type="date" id="filterDateFrom" style="width:auto;">
@@ -4404,13 +4408,20 @@ function teamScopedAssignments(lead, teamArr){
   if(!realTeams.length) return assigns;
   return assigns.filter(a=>realTeams.includes(a.team));
 }
+// Team filter semantics: by default a lead matches if it's with ANY picked team.
+// With "Must be referred to ALL selected teams" ticked, a lead must have a
+// referral in EVERY picked sales team (e.g. Tiles AND Sanitary together).
+// Reception counts as "satisfied" only for a lead not yet referred anywhere.
+let TEAM_MATCH_ALL = false;
+function leadMatchesTeamFilter(l, teamArr){
+  if(!teamArr || !teamArr.length) return true;
+  const hasTeam = t => t==='reception' ? !leadHasAssignments(l) : (l.assignments||[]).some(a=>a.team===t);
+  return (TEAM_MATCH_ALL && teamArr.length>1) ? teamArr.every(hasTeam) : teamArr.some(hasTeam);
+}
 function applyLeadFiltersExcept(baseList, f, exclude){
   let list = baseList;
   if(exclude!=='team' && f.team && f.team.length){
-    list = list.filter(l=>
-      (f.team.includes('reception') && !leadHasAssignments(l)) ||
-      (l.assignments||[]).some(a=>f.team.includes(a.team))
-    );
+    list = list.filter(l=> leadMatchesTeamFilter(l, f.team));
   }
   if(exclude!=='status' && f.status && f.status.length) list = list.filter(l=> teamScopedAssignments(l, f.team).some(a=>f.status.includes(a.status) || (f.status.includes('needs_update') && hasPendingRevisit(a))) || (!leadHasAssignments(l) && l.receptionLog?.length && f.status.includes(l.receptionLog[l.receptionLog.length-1].status)));
   if(exclude!=='salesperson' && f.salesperson && f.salesperson.length) list = list.filter(l=>
@@ -4513,10 +4524,7 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
     list = list.filter(l=> l.name.toLowerCase().includes(s) || (l.phone||'').includes(s));
   }
   if(team && team.length){
-    list = list.filter(l=>
-      (team.includes('reception') && !leadHasAssignments(l)) ||
-      (l.assignments||[]).some(a=>team.includes(a.team))
-    );
+    list = list.filter(l=> leadMatchesTeamFilter(l, team));
   }
   if(status && status.length){
     // Scoped to the selected team(s)' own assignments when a team is also
@@ -6809,6 +6817,8 @@ function bindDynamicHandlers(){
     msUpdateLabel('salesperson');
     refreshResults();
   }
+  const teamMatchAllChk = document.getElementById('teamMatchAllChk');
+  if(teamMatchAllChk) teamMatchAllChk.addEventListener('change', ()=>{ TEAM_MATCH_ALL = teamMatchAllChk.checked; refreshResults(); });
   if(searchBox) searchBox.addEventListener('input', refreshResults);
   if(filterDateFrom) filterDateFrom.addEventListener('change', refreshResults);
   if(filterDateTo) filterDateTo.addEventListener('change', refreshResults);

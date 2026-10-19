@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261019061803';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261019062037';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -594,7 +594,7 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[], digitalSources:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
@@ -615,6 +615,7 @@ function normalizeStaffObj(s){
     });
   });
   if(!Array.isArray(s.marketingPersons)) s.marketingPersons = [];
+  if(!Array.isArray(s.digitalSources)) s.digitalSources = [];
   if(!Array.isArray(s.heads) || s.heads.length!==3){
     s.heads = defaultStaff().heads;
   }
@@ -658,6 +659,7 @@ async function saveStaff(staff, fast){
         merged[dept] = JSON.stringify(staff[dept])!==JSON.stringify(baseline[dept]) ? staff[dept] : fresh[dept];
       });
       merged.marketingPersons = JSON.stringify(staff.marketingPersons)!==JSON.stringify(baseline.marketingPersons) ? staff.marketingPersons : fresh.marketingPersons;
+      merged.digitalSources = JSON.stringify(staff.digitalSources)!==JSON.stringify(baseline.digitalSources) ? staff.digitalSources : fresh.digitalSources;
       merged.heads = JSON.stringify(staff.heads)!==JSON.stringify(baseline.heads) ? staff.heads : fresh.heads;
       STAFF = merged;
       await db.collection('shbv_kv').doc('staff-data').set({value: JSON.stringify(merged), updatedAt:new Date().toISOString()});
@@ -839,6 +841,7 @@ function normalizeLead(l){
   if(l.city===undefined) l.city = '';
   if(l.referenceName===undefined) l.referenceName = '';
   if(l.marketingPersonName===undefined) l.marketingPersonName = '';
+  if(l.digitalSourceName===undefined) l.digitalSourceName = '';
   dedupeAssignments(l);
   l.receptionLog.forEach(log=>{
     if(log.nextFollowUp===undefined) log.nextFollowUp = null;
@@ -1027,9 +1030,24 @@ function bindCityAutocompleteEls(stateSel, cityInput, suggestions){
 function bindCityAutocomplete(stateSelId, cityInputId, suggestionsId){
   bindCityAutocompleteEls(document.getElementById(stateSelId), document.getElementById(cityInputId), document.getElementById(suggestionsId));
 }
+// The "who/where did this come from" detail for a lead: the marketing person for
+// Physical Marketing, the platform/campaign (Facebook, Google...) for Digital Ad.
+function sourceDetailName(l){
+  if(l.source==='Physical Marketing') return l.marketingPersonName||'';
+  if(l.source==='Digital Ad') return l.digitalSourceName||'';
+  return '';
+}
+function hasSourceDetail(src){ return src==='Physical Marketing' || src==='Digital Ad'; }
+function sourceDetailNameList(leads){
+  const used = {};
+  (leads||LEADS).forEach(l=>{ const n = sourceDetailName(l); if(n) used[n] = (used[n]||0)+1; });
+  const names = Array.from(new Set([...(STAFF.marketingPersons||[]), ...(STAFF.digitalSources||[]), ...Object.keys(used)])).sort();
+  return {names, counts:used};
+}
 function sourceDetailSuffix(l){
   if(l.source==='Reference' && l.referenceName) return ` (${esc(l.referenceName)})`;
   if(l.source==='Physical Marketing' && l.marketingPersonName) return ` (${esc(l.marketingPersonName)})`;
+  if(l.source==='Digital Ad' && l.digitalSourceName) return ` (${esc(l.digitalSourceName)})`;
   return '';
 }
 function toast(msg){
@@ -2096,7 +2114,7 @@ function renderHeadActiveLeadsResults(filterVal, sourceFilter, marketingFilter, 
   }
   let list = activeLeadsBaseList(filterVal, kitchenStage);
   if(sourceFilter) list = list.filter(l=> l.source===sourceFilter);
-  if(sourceFilter==='Physical Marketing' && marketingFilter) list = list.filter(l=> l.marketingPersonName===marketingFilter);
+  if(hasSourceDetail(sourceFilter) && marketingFilter) list = list.filter(l=> sourceDetailName(l)===marketingFilter);
   if(categoryFilter) list = list.filter(l=> (l.assignments||[]).some(a=>a.clientCategory===categoryFilter));
   if(!list.length) return `<div class="empty">Nothing matches this filter.</div>`;
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
@@ -2185,9 +2203,7 @@ function viewHeadActiveLeads(){
   // list never makes their existing leads unfilterable here — only Reception
   // and Head can even reach this dropdown, but the underlying data gap was
   // the same either way.
-  const marketingCounts = {};
-  LEADS.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = true; } });
-  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
+  const marketingNames = sourceDetailNameList().names;
   return `
   <select id="activeLeadsDeptFilter" style="margin-bottom:10px;">
     <option value="">— Please select —</option>
@@ -2210,7 +2226,7 @@ function viewHeadActiveLeads(){
   </select>
   <div id="activeLeadsMarketingWrap" class="hidden">
     <select id="activeLeadsMarketingFilter" style="margin-bottom:10px;">
-      <option value="">All marketing persons</option>
+      <option value="">All marketing persons / digital sources</option>
       ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
     </select>
   </div>
@@ -2365,6 +2381,13 @@ function viewAddLead(){
       <div style="position:relative;">
         <input type="text" id="newLeadMarketingPerson" autocomplete="off" placeholder="Type or pick a marketing person">
         <div id="newLeadMarketingSuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
+      </div>
+    </div>
+    <div id="newLeadDigitalWrap" class="hidden">
+      <label>Digital source</label>
+      <div style="position:relative;">
+        <input type="text" id="newLeadDigitalSource" autocomplete="off" placeholder="Type or pick where this lead came from (e.g. Facebook)">
+        <div id="newLeadDigitalSuggestions" class="hidden" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(21,37,36,.15);max-height:220px;overflow-y:auto;z-index:20;margin-top:-6px;"></div>
       </div>
     </div>
     ${SESSION.role==='head' ? `
@@ -3767,6 +3790,22 @@ function viewManageLogins(){
     </div>
   `).join('') : `<div class="empty" style="padding:8px 0;">No marketing persons added yet.</div>`}
 
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Digital Lead Sources</h3>
+    <div class="lead-meta" style="margin-bottom:10px;">Where your digital leads come from (e.g. Facebook Ads, Instagram, Google Ads, Website). Used to tag each Digital Ad lead with its origin, so you can filter and compare them later.</div>
+    <label>Source name</label>
+    <input type="text" id="newDigitalSourceName" placeholder="e.g. Facebook Lead Form">
+    <button class="btn btn-primary btn-full" id="addDigitalSourceBtn">Add Digital Source</button>
+  </div>
+  ${(STAFF.digitalSources||[]).length ? STAFF.digitalSources.map(name=>`
+    <div class="card" style="padding:10px 14px;">
+      <div class="card-row">
+        <div class="lead-name" style="font-size:14px;">${esc(name)}</div>
+        <button class="btn btn-ghost btn-sm removeDigitalSourceBtn" data-name="${esc(name)}">Remove</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty" style="padding:8px 0;">No digital sources added yet.</div>`}
+
   <div class="section-title" style="margin-top:24px;color:var(--bad);">Danger Zone</div>
   <div class="card" style="border-color:var(--bad);">
     <div class="lead-meta" style="margin-bottom:10px;">Permanently deletes every lead and every follow-up. Staff logins are kept as-is. This cannot be undone.</div>
@@ -3930,6 +3969,28 @@ function bindManageLoginsHandlers(){
     btn.addEventListener('click', async ()=>{
       if(!confirm(`Remove "${btn.dataset.name}" from the marketing persons list?`)) return;
       STAFF.marketingPersons = STAFF.marketingPersons.filter(n=>n!==btn.dataset.name);
+      await saveStaff(STAFF);
+      toast('Removed');
+      renderApp();
+    });
+  });
+  const addDigitalSourceBtn = document.getElementById('addDigitalSourceBtn');
+  if(addDigitalSourceBtn){
+    addDigitalSourceBtn.addEventListener('click', async ()=>{
+      const name = document.getElementById('newDigitalSourceName').value.trim();
+      if(!name){ toast('Enter a name'); return; }
+      if(!STAFF.digitalSources) STAFF.digitalSources = [];
+      if(STAFF.digitalSources.some(n=>n.toLowerCase()===name.toLowerCase())){ toast('That source is already on the list'); return; }
+      STAFF.digitalSources.push(name);
+      await saveStaff(STAFF);
+      toast(`Added ${name}`);
+      renderApp();
+    });
+  }
+  document.querySelectorAll('.removeDigitalSourceBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(`Remove "${btn.dataset.name}" from the digital sources list? Leads already tagged with it keep their tag.`)) return;
+      STAFF.digitalSources = (STAFF.digitalSources||[]).filter(n=>n!==btn.dataset.name);
       await saveStaff(STAFF);
       toast('Removed');
       renderApp();
@@ -4358,9 +4419,7 @@ function bindMsFilters(onChange){
 let MS_DOCUMENT_CLICK_BOUND = false;
 function viewAllLeads(){
   const salespeople = allSalespeopleList();
-  const marketingCounts = {};
-  LEADS.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
-  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
+  const {names:marketingNames, counts:marketingCounts} = sourceDetailNameList();
   const cities = Array.from(new Set(LEADS.map(l=>l.city).filter(Boolean))).sort();
   return `
   ${SESSION.role==='head' ? `<button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;">⬇ Full Data Backup (JSON — every detail)</button>` : ''}
@@ -4372,7 +4431,7 @@ function viewAllLeads(){
     ${msFilterHtml('status', 'All statuses', [...Object.entries(STATUS_LABELS).map(([k,v])=>({value:k,label:v})), {value:'needs_update', label:'🔁 Pending Update (Revisit)'}])}
     ${msFilterHtml('salesperson', 'All salesmen', salespeople.map(p=>({value:p.name,label:`${p.name} (${TEAM_LABELS[p.team]})`})))}
     ${msFilterHtml('company', 'Company referral: All', [{value:'yes',label:'Via company person'},{value:'no',label:'Not via company person'}])}
-    ${msFilterHtml('marketing', 'Marketing person: All', marketingNames.map(n=>({value:n,label:`${n} (${marketingCounts[n]||0})`})))}
+    ${msFilterHtml('marketing', 'Marketing person / Digital source: All', marketingNames.map(n=>({value:n,label:`${n} (${marketingCounts[n]||0})`})))}
     ${msFilterHtml('unreferred', 'Referral status: All', [{value:'yes',label:'Not referred yet'},{value:'no',label:'Referred'}])}
     ${msFilterHtml('source', 'All sources', SOURCE_OPTIONS.map(s=>({value:s,label:s})))}
     ${msFilterHtml('city', 'All cities', cities.map(c=>({value:c,label:c})))}
@@ -4466,7 +4525,7 @@ function applyLeadFiltersExcept(baseList, f, exclude){
   if(exclude==='company') g.company = [];
   if(exclude==='category') g.category = [];
   if((g.team && g.team.length) || assignmentFilterActive(g)) list = list.filter(l=> leadMatchesTeamAndAssignmentFilters(l, g));
-  if(exclude!=='marketing' && f.marketing && f.marketing.length) list = list.filter(l=> f.marketing.includes(l.marketingPersonName));
+  if(exclude!=='marketing' && f.marketing && f.marketing.length) list = list.filter(l=> f.marketing.includes(sourceDetailName(l)));
   // Picking both Yes+No (or neither) for a yes/no filter is the same as not
   // filtering by it at all.
   if(exclude!=='unreferred' && f.unreferred && f.unreferred.length===1){
@@ -4523,7 +4582,7 @@ function updateCascadingFilterOptions(baseList, f){
   }));
   applyDisabled('source', validSet('source', l=>[l.source]));
   applyDisabled('city', validSet('city', l=>[l.city]));
-  applyDisabled('marketing', validSet('marketing', l=> l.source==='Physical Marketing' ? [l.marketingPersonName] : []));
+  applyDisabled('marketing', validSet('marketing', l=> sourceDetailName(l) ? [sourceDetailName(l)] : []));
   applyDisabled('category', validSet('category', l=>teamScopedAssignments(l, f.team).map(a=>a.clientCategory)));
   {
     const scoped = applyLeadFiltersExcept(baseList, f, 'company');
@@ -4586,9 +4645,7 @@ function leadsActiveInRange(start, end){
 function rangeLeadsFilterPanel(prefix, range){
   const salespeople = allSalespeopleList();
   const rangeLeads = leadsActiveInRange(range.start, range.end);
-  const marketingCounts = {};
-  rangeLeads.forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName){ marketingCounts[l.marketingPersonName] = (marketingCounts[l.marketingPersonName]||0)+1; } });
-  const marketingNames = Array.from(new Set([...(STAFF.marketingPersons||[]), ...Object.keys(marketingCounts)])).sort();
+  const {names:marketingNames, counts:marketingCounts} = sourceDetailNameList(rangeLeads);
   const cities = Array.from(new Set(rangeLeads.map(l=>l.city).filter(Boolean))).sort();
   return `
   <div class="section-title" style="margin-top:24px;">All Leads In This Period</div>
@@ -4613,7 +4670,7 @@ function rangeLeadsFilterPanel(prefix, range){
     </select>
     ${marketingNames.length ? `
     <select id="${prefix}FilterMarketing">
-      <option value="">Marketing person: All</option>
+      <option value="">Marketing person / Digital source: All</option>
       ${marketingNames.map(n=>`<option value="${esc(n)}">${esc(n)} (${marketingCounts[n]||0})</option>`).join('')}
     </select>` : ''}
     <select id="${prefix}FilterUnreferred">
@@ -4746,7 +4803,7 @@ function updateCascadingSelectFilterOptions(baseList, f, els){
   }));
   applyDisabled(els.source, validSet('source', l=>[l.source]));
   applyDisabled(els.city, validSet('city', l=>[l.city]));
-  applyDisabled(els.marketing, validSet('marketing', l=> l.source==='Physical Marketing' ? [l.marketingPersonName] : []));
+  applyDisabled(els.marketing, validSet('marketing', l=> sourceDetailName(l) ? [sourceDetailName(l)] : []));
   applyDisabled(els.category, validSet('category', l=>teamScopedAssignments(l, f.team).map(a=>a.clientCategory)));
   if(els.company){
     const scoped = applyLeadFiltersExcept(baseList, f, 'company');
@@ -4858,15 +4915,15 @@ function neglectedLeadCard(l){
 
 /* ---------------- Head: Daily reports ---------------- */
 function leadsToCSV(){
-  const rows = [['Lead Name','Phone','Address','City','State','Source','Reference Name','Marketing Person','Added On','Added By','Team','Salesperson','Status','Kitchen Pipeline Stage','Meeting Date','Meeting Time','Company Referred','Company Name','Company Person','Product','Last Remark','Next Follow-up']];
+  const rows = [['Lead Name','Phone','Address','City','State','Source','Reference Name','Marketing Person','Digital Source','Added On','Added By','Team','Salesperson','Status','Kitchen Pipeline Stage','Meeting Date','Meeting Time','Company Referred','Company Name','Company Person','Product','Last Remark','Next Follow-up']];
   LEADS.forEach(l=>{
     if(!l.assignments || !l.assignments.length){
-      rows.push([l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',fmtDate(l.createdAt),l.createdBy||'','—','—','Not yet referred','','','','','','','','','']);
+      rows.push([l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',l.digitalSourceName||'',fmtDate(l.createdAt),l.createdBy||'','—','—','Not yet referred','','','','','','','','','']);
     } else {
       l.assignments.forEach(a=>{
         const lastLog = a.log && a.log.length ? a.log[a.log.length-1] : null;
         rows.push([
-          l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',
+          l.name,l.phone,l.address||'',l.city||'',l.state||'',l.source,l.referenceName||'',l.marketingPersonName||'',l.digitalSourceName||'',
           fmtDate(l.createdAt),l.createdBy||'',TEAM_LABELS[a.team],a.salesperson,statusLabelFor(a),
           a.team==='kitchen' && a.pipelineStage ? (KITCHEN_PIPELINE_LABELS[a.pipelineStage]||'') : '',
           a.meetingDate||'', a.meetingTime||'',
@@ -5954,6 +6011,11 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <label>Marketing person</label>
         <input type="text" id="editLeadMarketingPerson" placeholder="Who brought this customer in?" value="${esc(lead.marketingPersonName||'')}">
       </div>
+      <div id="editLeadDigitalWrap" class="${lead.source==='Digital Ad'?'':'hidden'}">
+        <label>Digital source</label>
+        <input type="text" id="editLeadDigitalSource" list="editLeadDigitalSourceList" placeholder="Where did this lead come from? (e.g. Facebook)" value="${esc(lead.digitalSourceName||'')}">
+        <datalist id="editLeadDigitalSourceList">${(STAFF.digitalSources||[]).map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist>
+      </div>
       <button class="btn btn-primary btn-sm" id="saveEditLeadBtn" data-lead-id="${lead.id}">Save Changes</button>
     </div>
     ${isHead ? `<button class="btn btn-sm" style="background:var(--bad);color:#fff;margin-top:10px;" id="deleteLeadBtn" data-lead-id="${lead.id}" data-lead-name="${esc(lead.name)}">Delete This Lead</button>` : ''}
@@ -6280,7 +6342,7 @@ function bindDynamicHandlers(){
       function scoped(exclude){
         let l = baseList;
         if(exclude!=='source' && f.source) l = l.filter(x=>x.source===f.source);
-        if(exclude!=='marketing' && f.source==='Physical Marketing' && f.marketing) l = l.filter(x=>x.marketingPersonName===f.marketing);
+        if(exclude!=='marketing' && hasSourceDetail(f.source) && f.marketing) l = l.filter(x=>sourceDetailName(x)===f.marketing);
         if(exclude!=='category' && f.category) l = l.filter(x=>(x.assignments||[]).some(a=>a.clientCategory===f.category));
         return l;
       }
@@ -6292,7 +6354,7 @@ function bindDynamicHandlers(){
         });
       }
       const sourceValid = new Set(); scoped('source').forEach(l=>sourceValid.add(l.source));
-      const marketingValid = new Set(); scoped('marketing').forEach(l=>{ if(l.source==='Physical Marketing' && l.marketingPersonName) marketingValid.add(l.marketingPersonName); });
+      const marketingValid = new Set(); scoped('marketing').forEach(l=>{ const n = sourceDetailName(l); if(n) marketingValid.add(n); });
       const categoryValid = new Set(); scoped('category').forEach(l=>(l.assignments||[]).forEach(a=>{ if(a.clientCategory) categoryValid.add(a.clientCategory); }));
       applyDisabled(activeLeadsSourceFilter, sourceValid);
       applyDisabled(activeLeadsMarketingFilter, marketingValid);
@@ -6346,7 +6408,7 @@ function bindDynamicHandlers(){
     activeLeadsPersonFilter.addEventListener('change', refreshActiveLeads);
     if(activeLeadsKitchenStageFilter) activeLeadsKitchenStageFilter.addEventListener('change', refreshActiveLeads);
     activeLeadsSourceFilter.addEventListener('change', ()=>{
-      activeLeadsMarketingWrap.classList.toggle('hidden', activeLeadsSourceFilter.value!=='Physical Marketing');
+      activeLeadsMarketingWrap.classList.toggle('hidden', !hasSourceDetail(activeLeadsSourceFilter.value));
       refreshActiveLeads();
     });
     activeLeadsMarketingFilter.addEventListener('change', refreshActiveLeads);
@@ -6649,10 +6711,12 @@ function bindDynamicHandlers(){
   const newLeadSourceSel = document.getElementById('newLeadSource');
   const newLeadReferenceWrap = document.getElementById('newLeadReferenceWrap');
   const newLeadMarketingWrap = document.getElementById('newLeadMarketingWrap');
+  const newLeadDigitalWrap = document.getElementById('newLeadDigitalWrap');
   function toggleSourceFields(){
     if(!newLeadSourceSel) return;
     if(newLeadReferenceWrap) newLeadReferenceWrap.classList.toggle('hidden', newLeadSourceSel.value!=='Reference');
     if(newLeadMarketingWrap) newLeadMarketingWrap.classList.toggle('hidden', newLeadSourceSel.value!=='Physical Marketing');
+    if(newLeadDigitalWrap) newLeadDigitalWrap.classList.toggle('hidden', newLeadSourceSel.value!=='Digital Ad');
   }
   if(newLeadSourceSel){
     toggleSourceFields();
@@ -6684,6 +6748,31 @@ function bindDynamicHandlers(){
     newLeadMarketingInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadMarketingSuggestions.classList.add('hidden'), 150); });
   }
 
+  const newLeadDigitalInput = document.getElementById('newLeadDigitalSource');
+  const newLeadDigitalSuggestions = document.getElementById('newLeadDigitalSuggestions');
+  function renderDigitalSuggestions(){
+    if(!newLeadDigitalInput || !newLeadDigitalSuggestions) return;
+    const names = STAFF.digitalSources || [];
+    const q = newLeadDigitalInput.value.trim().toLowerCase();
+    const matches = (q ? names.filter(n=>n.toLowerCase().includes(q)) : names).slice(0, 8);
+    if(!matches.length){ newLeadDigitalSuggestions.classList.add('hidden'); newLeadDigitalSuggestions.innerHTML=''; return; }
+    newLeadDigitalSuggestions.innerHTML = matches.map(n=>
+      `<div class="digitalSuggestionItem" style="padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);">${esc(n)}</div>`
+    ).join('');
+    newLeadDigitalSuggestions.classList.remove('hidden');
+    newLeadDigitalSuggestions.querySelectorAll('.digitalSuggestionItem').forEach(item=>{
+      item.addEventListener('click', ()=>{
+        newLeadDigitalInput.value = item.textContent;
+        newLeadDigitalSuggestions.classList.add('hidden');
+      });
+    });
+  }
+  if(newLeadDigitalInput){
+    newLeadDigitalInput.addEventListener('focus', renderDigitalSuggestions);
+    newLeadDigitalInput.addEventListener('input', renderDigitalSuggestions);
+    newLeadDigitalInput.addEventListener('blur', ()=>{ setTimeout(()=>newLeadDigitalSuggestions.classList.add('hidden'), 150); });
+  }
+
   const newLeadTeamSel = document.getElementById('newLeadTeam');
   const newLeadPersonWrap = document.getElementById('newLeadPersonWrap');
   const newLeadPersonSel = document.getElementById('newLeadPersonSel');
@@ -6708,6 +6797,7 @@ function bindDynamicHandlers(){
       const source = document.getElementById('newLeadSource').value;
       const referenceName = source==='Reference' ? document.getElementById('newLeadReferenceName').value.trim() : '';
       const marketingPersonName = source==='Physical Marketing' ? document.getElementById('newLeadMarketingPerson').value.trim() : '';
+      const digitalSourceName = source==='Digital Ad' ? document.getElementById('newLeadDigitalSource').value.trim() : '';
       if(!name || !phone){ toast('Name and phone are required'); return; }
       // Backdating: lets Reception/salespeople log a walk-in after the fact so it
       // lands on the day it actually happened (for daily counts, date-range
@@ -6732,7 +6822,7 @@ function bindDynamicHandlers(){
       const referTeam = SESSION.role==='head' ? (document.getElementById('newLeadTeam')?.value||'') : '';
       const referPerson = SESSION.role==='head' ? (document.getElementById('newLeadPersonSel')?.value||'') : '';
       const lead = {
-        id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName,
+        id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName, digitalSourceName,
         createdAt: createdAtIso, createdBy: SESSION.name,
         receptionLog:[],
         assignments: isSalesAdding ? [{
@@ -7126,6 +7216,7 @@ function bindModalHandlers(lead){
       const source = document.getElementById('editLeadSource').value;
       const referenceName = source==='Reference' ? document.getElementById('editLeadReferenceName').value.trim() : '';
       const marketingPersonName = source==='Physical Marketing' ? document.getElementById('editLeadMarketingPerson').value.trim() : '';
+      const digitalSourceName = source==='Digital Ad' ? document.getElementById('editLeadDigitalSource').value.trim() : '';
       if(!name || !phone){ toast('Name and phone are required'); return; }
       target.name = name;
       target.phone = phone;
@@ -7135,6 +7226,7 @@ function bindModalHandlers(lead){
       target.source = source;
       target.referenceName = referenceName;
       target.marketingPersonName = marketingPersonName;
+      target.digitalSourceName = digitalSourceName;
       await saveLeads(LEADS);
       toast('Lead details updated');
       closeModal();
@@ -7143,10 +7235,12 @@ function bindModalHandlers(lead){
     const editLeadSourceSel = document.getElementById('editLeadSource');
     const editLeadReferenceWrap = document.getElementById('editLeadReferenceWrap');
     const editLeadMarketingWrap = document.getElementById('editLeadMarketingWrap');
+    const editLeadDigitalWrap = document.getElementById('editLeadDigitalWrap');
     if(editLeadSourceSel){
       editLeadSourceSel.addEventListener('change', ()=>{
         editLeadReferenceWrap.classList.toggle('hidden', editLeadSourceSel.value!=='Reference');
         editLeadMarketingWrap.classList.toggle('hidden', editLeadSourceSel.value!=='Physical Marketing');
+        if(editLeadDigitalWrap) editLeadDigitalWrap.classList.toggle('hidden', editLeadSourceSel.value!=='Digital Ad');
       });
     }
   }

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261015094315';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261019061803';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -5809,6 +5809,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
         <div style="margin-top:8px;padding:8px 12px;background:var(--bad-bg);color:var(--bad);border-radius:8px;font-weight:600;">
           🔁 Revisit — customer came back in, update needed${rv.note?`<div style="font-weight:400;margin-top:4px;">"${esc(rv.note)}"</div>`:''}
           <div style="font-weight:400;margin-top:2px;font-size:12px;">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div>
+          ${(isReception || isHead) ? `<button class="btn btn-ghost btn-sm cancelRevisitBtn" data-assign="${a.id}" data-lead-id="${lead.id}" data-revisit-id="${rv.id}" style="margin-top:8px;color:var(--bad);">✕ Cancel Revisit (marked by mistake)</button>` : ''}
         </div>` : ''; })()}
         ${isReception && !hasPendingRevisit(a) ? `
           <button class="btn btn-ghost btn-sm toggleRevisitBtn" data-assign="${a.id}" style="margin-top:6px;">🔁 Mark Revisit</button>
@@ -7018,6 +7019,28 @@ function bindModalHandlers(lead){
       a.revisits.push({id:uid(), requestedAt:new Date().toISOString(), requestedBy:SESSION.name, note, resolvedAt:null});
       await saveLeads(LEADS);
       toast('Revisit flagged — salesperson will see it');
+      closeModal();
+      renderApp();
+    });
+  });
+
+  // Cancel a revisit that was flagged by mistake (wrong customer clicked). Only
+  // possible while it's still pending — once the salesperson has updated it, it
+  // was acted on and stays as a real record. The entry is removed outright (not
+  // just resolved) so "Revisited Nx", Revisits Today and Pending Update all
+  // drop back to what they were before the accidental click.
+  document.querySelectorAll('.cancelRevisitBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const targetLead = LEADS.find(l=>l.id===btn.dataset.leadId);
+      const a = targetLead && targetLead.assignments.find(x=>x.id===btn.dataset.assign);
+      if(!a) return;
+      const rv = (a.revisits||[]).find(r=>r.id===btn.dataset.revisitId);
+      if(!rv){ toast('This revisit no longer exists'); closeModal(); renderApp(); return; }
+      if(rv.resolvedAt){ toast('Salesperson already updated this one — it can no longer be cancelled'); return; }
+      if(!confirm(`Cancel the revisit flagged for ${targetLead.name} (${TEAM_LABELS[a.team]} — ${a.salesperson})? It will disappear from ${a.salesperson}'s list and from today's revisit count.`)) return;
+      a.revisits = a.revisits.filter(r=>r.id!==rv.id);
+      await saveLeads(LEADS);
+      toast('Revisit cancelled');
       closeModal();
       renderApp();
     });

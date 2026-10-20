@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261019062037';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261020100635';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -2547,7 +2547,9 @@ function postSaleCard(lead, a){
           ${POST_SALE_STAGE_LABELS[e.stage]||e.stage} completed. ${e.remarks?esc(e.remarks):''} ${e.nextDate?`<div class="meta">Next step expected: ${fmtDate(e.nextDate)}</div>`:''}
         </div>`).join('')}
     ` : ''}
+    ${a.nextFollowUp ? `<div class="lead-meta" style="margin-top:8px;">📞 Follow-up call: <b>${fmtDate(a.nextFollowUp)}</b> ${followupBadgeFor(a.nextFollowUp)}</div>` : ''}
     <div class="row-btns" style="margin-top:8px;">
+      <button class="btn btn-brass btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}" data-focus-section="followup">📞 ${a.nextFollowUp ? 'Update Follow-up' : 'Add Follow-up'}</button>
       <button class="btn btn-ghost btn-sm" data-open-lead="${lead.id}" data-focus-assign="${a.id}">View Full Lead</button>
     </div>
   </div>`;
@@ -4176,11 +4178,12 @@ function computeWeeklyStats(start, end){
         byTeam[a.team].referred++;
         bySales[key].referred++;
       }
+      const saleLogs = new Set(assignmentSaleEvents(a).map(e=>e.log));
       (a.log||[]).forEach(log=>{
         if(!inRange(log.timestamp, start, end)) return;
         if(log.status==='visited') byTeam[a.team].visited++;
-        if(log.status==='partial_sale'){ byTeam[a.team].partial++; bySales[key].partial++; }
-        if(log.status==='sale'){ byTeam[a.team].sale++; bySales[key].sale++; }
+        if(log.status==='partial_sale' && saleLogs.has(log)){ byTeam[a.team].partial++; bySales[key].partial++; }
+        if(log.status==='sale' && saleLogs.has(log)){ byTeam[a.team].sale++; bySales[key].sale++; }
         if(log.status==='lost'){ byTeam[a.team].lost++; bySales[key].lost++; }
         if(log.status==='followup'){
           byTeam[a.team].followup++;
@@ -5109,16 +5112,35 @@ function oldLeadsUpdatedTodayLeads(targetDate){
   return out;
 }
 function oldLeadsUpdatedTodayCount(targetDate){ return oldLeadsUpdatedTodayLeads(targetDate).length; }
-// Every lead with at least one assignment marked "Sale Done" today (deduped
-// per lead — a lead with two departments both selling today still counts once).
-function salesDoneTodayLeads(targetDate){
-  const today = targetDate || todayStr();
+// A sale only "happens" on the day an assignment MOVES INTO Sale Done (or Partial
+// Sale) — not on every later day someone saves an update on a lead that's
+// already sold (Kitchen keeps updating after the sale: new details, post-sale
+// steps). We walk the outcome history in order, ignoring follow-up call logs,
+// and only count an entry whose status differs from the outcome before it.
+function assignmentSaleEvents(a){
+  const logs = (a.log||[]).slice().sort((x,y)=>x.timestamp.localeCompare(y.timestamp));
   const out = [];
-  LEADS.forEach(l=>{
-    const soldToday = (l.assignments||[]).some(a=> (a.log||[]).some(log=> (log.status==='sale' || log.status==='partial_sale') && log.timestamp.slice(0,10)===today));
-    if(soldToday) out.push(l);
+  let prev = null;
+  logs.forEach(log=>{
+    if(log.status==='followup' || log.status==='no-followup') return;
+    if(log.status==='sale' && prev!=='sale') out.push({log, status:'sale'});
+    else if(log.status==='partial_sale' && prev!=='partial_sale' && prev!=='sale') out.push({log, status:'partial_sale'});
+    prev = log.status;
   });
   return out;
+}
+function saleEventsOnDate(l, date){
+  const out = [];
+  (l.assignments||[]).forEach(a=> assignmentSaleEvents(a).forEach(e=>{
+    if(e.log.timestamp.slice(0,10)===date) out.push(e);
+  }));
+  return out;
+}
+// Every lead that had a sale (full or partial) actually close on this date
+// (deduped per lead — two departments both selling that day still count once).
+function salesDoneTodayLeads(targetDate){
+  const today = targetDate || todayStr();
+  return LEADS.filter(l=> saleEventsOnDate(l, today).length>0);
 }
 // Splits today's purchasing customers into full vs partial sale (a customer with
 // both counts as full), so the tile can show "x full · y partial" under the total.
@@ -5126,8 +5148,7 @@ function salesDoneBreakdown(targetDate){
   const today = targetDate || todayStr();
   let full = 0, partial = 0;
   salesDoneTodayLeads(targetDate).forEach(l=>{
-    const hasFull = (l.assignments||[]).some(a=> (a.log||[]).some(log=> log.status==='sale' && log.timestamp.slice(0,10)===today));
-    if(hasFull) full++; else partial++;
+    if(saleEventsOnDate(l, today).some(e=>e.status==='sale')) full++; else partial++;
   });
   return {full, partial};
 }
@@ -5966,9 +5987,25 @@ function renderLeadDetail(lead, focusAssignId, mode){
           </div>` : `
           <div id="followupSection-${a.id}" style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
             <div class="lead-meta">${a.status==='sale'
-              ? (a.team==='kitchen' ? "Sale done — install tracking below. Reception's Feedback Call gets auto-scheduled once every post-sale step is complete." : 'Sale done — no manual follow-up needed here. Reception has a Feedback Call auto-scheduled 2 days after the sale.')
+              ? (a.team==='kitchen' ? "Sale done — install tracking below. Reception's Feedback Call gets auto-scheduled once every post-sale step is complete." : 'Sale done. Reception has a Feedback Call auto-scheduled after the sale — you can still schedule your own follow-up call below.')
               : 'Marked as lost — no follow-up needed.'}</div>
             ${a.status==='sale' && a.team==='kitchen' ? postSaleInlineBlock(lead, a, true) : ''}
+            ${a.status==='sale' ? `
+            <div class="assign-block" style="margin-top:12px;">
+              <div class="section-title" style="margin:0 0 6px;">📞 Post-Sale Follow-up Call</div>
+              ${a.nextFollowUp ? `<div class="lead-meta" style="margin-bottom:6px;">Next follow-up scheduled: <b>${fmtDate(a.nextFollowUp)}</b></div>` : ''}
+              <label>Call remarks</label>
+              <textarea class="followupRemarksInput" data-assign="${a.id}" placeholder="What did the customer say / what needs a call back?"></textarea>
+              <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;">
+                <input type="checkbox" class="noFutureFollowupChk" data-assign="${a.id}" style="width:auto;margin:0;">
+                No future follow-up needed
+              </label>
+              <div class="followupDateWrap-${a.id}">
+                <label>Next call date</label>
+                <input type="date" class="followupDateInput" data-assign="${a.id}" value="${a.nextFollowUp||todayStr()}">
+              </div>
+              <button class="btn btn-brass btn-sm saveFollowupBtn" data-assign="${a.id}">Save Follow-up Call</button>
+            </div>` : ''}
           </div>`}` : (a.status==='sale' && a.team==='kitchen' ? `
         <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:10px;">
           ${postSaleInlineBlock(lead, a, false)}

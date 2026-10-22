@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261020100635';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261022132331';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4178,12 +4178,11 @@ function computeWeeklyStats(start, end){
         byTeam[a.team].referred++;
         bySales[key].referred++;
       }
-      const saleLogs = new Set(assignmentSaleEvents(a).map(e=>e.log));
       (a.log||[]).forEach(log=>{
         if(!inRange(log.timestamp, start, end)) return;
         if(log.status==='visited') byTeam[a.team].visited++;
-        if(log.status==='partial_sale' && saleLogs.has(log)){ byTeam[a.team].partial++; bySales[key].partial++; }
-        if(log.status==='sale' && saleLogs.has(log)){ byTeam[a.team].sale++; bySales[key].sale++; }
+        if(log.status==='partial_sale'){ byTeam[a.team].partial++; bySales[key].partial++; }
+        if(log.status==='sale'){ byTeam[a.team].sale++; bySales[key].sale++; }
         if(log.status==='lost'){ byTeam[a.team].lost++; bySales[key].lost++; }
         if(log.status==='followup'){
           byTeam[a.team].followup++;
@@ -5112,31 +5111,25 @@ function oldLeadsUpdatedTodayLeads(targetDate){
   return out;
 }
 function oldLeadsUpdatedTodayCount(targetDate){ return oldLeadsUpdatedTodayLeads(targetDate).length; }
-// A sale only "happens" on the day an assignment MOVES INTO Sale Done (or Partial
-// Sale) — not on every later day someone saves an update on a lead that's
-// already sold (Kitchen keeps updating after the sale: new details, post-sale
-// steps). We walk the outcome history in order, ignoring follow-up call logs,
-// and only count an entry whose status differs from the outcome before it.
-function assignmentSaleEvents(a){
-  const logs = (a.log||[]).slice().sort((x,y)=>x.timestamp.localeCompare(y.timestamp));
+// Sale Done counts ANY update saved on a sold/partial-sale assignment that day —
+// a new outcome save, or a post-sale step marked done — so every day a customer's
+// purchase is actively worked on shows up. Follow-up calls (status 'followup' /
+// 'no-followup') are the one thing that never counts.
+function saleEventsOnDate(l, date){
   const out = [];
-  let prev = null;
-  logs.forEach(log=>{
-    if(log.status==='followup' || log.status==='no-followup') return;
-    if(log.status==='sale' && prev!=='sale') out.push({log, status:'sale'});
-    else if(log.status==='partial_sale' && prev!=='partial_sale' && prev!=='sale') out.push({log, status:'partial_sale'});
-    prev = log.status;
+  (l.assignments||[]).forEach(a=>{
+    (a.log||[]).forEach(log=>{
+      if((log.status==='sale' || log.status==='partial_sale') && log.timestamp.slice(0,10)===date) out.push({log, status:log.status});
+    });
+    if(a.status==='sale'){
+      (a.postSaleLog||[]).forEach(e=>{
+        if(e.completedAt && e.completedAt.slice(0,10)===date) out.push({log:e, status:'sale'});
+      });
+    }
   });
   return out;
 }
-function saleEventsOnDate(l, date){
-  const out = [];
-  (l.assignments||[]).forEach(a=> assignmentSaleEvents(a).forEach(e=>{
-    if(e.log.timestamp.slice(0,10)===date) out.push(e);
-  }));
-  return out;
-}
-// Every lead that had a sale (full or partial) actually close on this date
+// Every lead with a Sale Done / Partial Sale update on this date
 // (deduped per lead — two departments both selling that day still count once).
 function salesDoneTodayLeads(targetDate){
   const today = targetDate || todayStr();

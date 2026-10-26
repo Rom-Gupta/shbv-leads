@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261026051858';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261026082538';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4975,8 +4975,8 @@ function lastUpdateText(l){
   return `${String(e.ts).slice(0,10)} · ${e.who}: ${e.text}${e.next?` (next follow-up: ${e.next})`:''}`;
 }
 function filteredLeadsToCSV(list){
-  const rows = [['Name','Number','Address','Last Reason / Follow-up']];
-  list.forEach(l=> rows.push([l.name, l.phone, l.address||'', lastUpdateText(l)]));
+  const rows = [['Name','Number','City','Last Reason / Follow-up']];
+  list.forEach(l=> rows.push([l.name, l.phone, l.city||'', lastUpdateText(l)]));
   return rows.map(r=>r.map(c=>`"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
 }
 function downloadFilteredLeadsCSV(){

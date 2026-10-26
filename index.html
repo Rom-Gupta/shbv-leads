@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261022132331';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261026051858';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -4949,9 +4949,34 @@ function downloadCSV(){
 // Lightweight export for All Leads: only whatever leads are currently
 // showing under the active filters, and only 4 columns — just enough
 // to hand off a calling/mailing list, not a full data backup.
+// Most recent human-written note on a lead across reception calls, every
+// referral's follow-up log, and post-sale steps. Auto-generated system
+// entries are skipped so the column shows the real last reason/follow-up.
+function lastUpdateText(l){
+  const ev = [];
+  (l.receptionLog||[]).forEach(e=>{
+    if(!e.remarks || /^System/i.test(e.author||'')) return;
+    ev.push({ts:e.timestamp, who:`Reception${e.author?' ('+e.author+')':''}`, text:e.remarks, next:e.nextFollowUp});
+  });
+  (l.assignments||[]).forEach(a=>{
+    const team = (typeof TEAM_LABELS!=='undefined' && TEAM_LABELS[a.team]) || a.team;
+    (a.log||[]).forEach(e=>{
+      if(!e.remarks) return;
+      ev.push({ts:e.timestamp, who:`${team}${e.author?' ('+e.author+')':''}`, text:e.remarks, next:e.nextFollowUp});
+    });
+    (a.postSaleLog||[]).forEach(e=>{
+      if(!e.remarks) return;
+      ev.push({ts:e.completedAt, who:`${team}${e.author?' ('+e.author+')':''}`, text:e.remarks, next:e.nextDate});
+    });
+  });
+  const sorted = ev.filter(e=>e.ts).sort((x,y)=> String(y.ts).localeCompare(String(x.ts)));
+  if(!sorted.length) return '';
+  const e = sorted[0];
+  return `${String(e.ts).slice(0,10)} · ${e.who}: ${e.text}${e.next?` (next follow-up: ${e.next})`:''}`;
+}
 function filteredLeadsToCSV(list){
-  const rows = [['Name','Number','Address','Source']];
-  list.forEach(l=> rows.push([l.name, l.phone, l.address||'', l.source]));
+  const rows = [['Name','Number','Address','Last Reason / Follow-up']];
+  list.forEach(l=> rows.push([l.name, l.phone, l.address||'', lastUpdateText(l)]));
   return rows.map(r=>r.map(c=>`"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
 }
 function downloadFilteredLeadsCSV(){

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261030144948';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261030145722';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -1971,14 +1971,16 @@ function collectUpcomingFollowups(){
       });
       if(l.receptionLog && l.receptionLog.length){
         const last = l.receptionLog[l.receptionLog.length-1];
-        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp, team:'reception', salesperson:null});
+        // Once a lead is referred, an old generic Reception "call them" follow-up is
+        // finished business (they came in) — only real call types still count.
+        if(receptionHasPendingFollowup(l) && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp, team:'reception', salesperson:null});
       }
     });
   } else if(SESSION.role==='reception'){
     LEADS.forEach(l=>{
       if(l.receptionLog && l.receptionLog.length){
         const last = l.receptionLog[l.receptionLog.length-1];
-        if(last.status==='followup' && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp});
+        if(receptionHasPendingFollowup(l) && last.nextFollowUp) entries.push({lead:l, label:'Reception', date:last.nextFollowUp});
       }
     });
   } else {

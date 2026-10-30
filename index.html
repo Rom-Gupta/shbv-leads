@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261030151944';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261030152148';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -294,6 +294,11 @@
   </div>
 
   <div class="daily-thought" id="dailyThought"><div class="dt-ic">✨</div><div><div class="dt-k">Thought of the day</div><div class="dt-t" id="dailyThoughtText"></div></div></div>
+
+  <div id="headReminder" class="hidden" style="background:var(--info-bg);color:var(--info);padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:12px;font-weight:600;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;">
+    <span id="headReminderText"></span>
+    <button class="btn btn-ghost btn-sm" id="headReminderDismiss" style="flex:none;">Dismiss for today</button>
+  </div>
 
   <div id="storageBanner" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:12px;font-weight:600;">
     ⚠ Not connected to storage right now — anything you enter may not be saved. Try reloading the page, and tell your admin if this keeps happening.
@@ -1904,6 +1909,21 @@ const DAILY_POOL = (function(){
   DAILY_TAGS.forEach(tag=> DAILY_ACTIONS.forEach(([a,p])=> out.push(`${tag} ${a} — ${p}`)));
   return out;
 })();
+// Yearly reminder for the Head: the built-in pool of daily thoughts lasts 404 days
+// from 30 Oct 2026 (to ~8 Dec 2027). From 8 Nov 2027, remind the Head to have it refreshed.
+const DAILY_THOUGHTS_REFRESH_FROM = '2027-11-08';
+function renderHeadReminder(){
+  const box = document.getElementById('headReminder');
+  if(!box) return;
+  const show = !!SESSION && SESSION.role==='head' && todayStr() >= DAILY_THOUGHTS_REFRESH_FROM;
+  let dismissed = false;
+  try{ dismissed = localStorage.getItem('shbv_thought_reminder_'+todayStr())==='1'; }catch(e){}
+  if(!show || dismissed){ box.classList.add('hidden'); return; }
+  document.getElementById('headReminderText').textContent = '🔔 Reminder: the daily "Thought of the day" lines will start repeating soon. Ask Claude to "refresh the daily thoughts" to add a new batch.';
+  box.classList.remove('hidden');
+  const btn = document.getElementById('headReminderDismiss');
+  btn.onclick = ()=>{ try{ localStorage.setItem('shbv_thought_reminder_'+todayStr(),'1'); }catch(e){} box.classList.add('hidden'); };
+}
 function renderDailyThought(){
   const el = document.getElementById('dailyThoughtText');
   if(!el) return;
@@ -1917,6 +1937,7 @@ function renderDailyThought(){
 /* ---------------- Main render dispatch ---------------- */
 async function renderApp(){
   renderDailyThought();
+  renderHeadReminder();
   const banner = document.getElementById('storageBanner');
   if(banner) banner.classList.toggle('hidden', !STORAGE_ERROR);
   renderTabs();

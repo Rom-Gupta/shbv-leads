@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261030144630';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261030144948';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -267,7 +267,6 @@
       <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
       <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
       <div class="role-btn" data-role="windows">Sales – Windows</div>
-      <div class="role-btn" data-role="adviewer">Ad Manager (View only)</div>
     </div>
   </div>
 
@@ -597,12 +596,12 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], adviewer:[], marketingPersons:[], digitalSources:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[], digitalSources:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
   if(!s) return defaultStaff();
-  ['reception','tiles','sanitary','kitchen','windows','adviewer'].forEach(k=>{
+  ['reception','tiles','sanitary','kitchen','windows'].forEach(k=>{
     if(!Array.isArray(s[k])) s[k]=[];
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
     s[k].forEach(p=>{
@@ -658,7 +657,7 @@ async function saveStaff(staff, fast){
       const freshDoc = await db.collection('shbv_kv').doc('staff-data').get();
       const fresh = normalizeStaffObj(freshDoc.exists ? JSON.parse(freshDoc.data().value) : null);
       const merged = {...fresh};
-      ['reception','tiles','sanitary','kitchen','windows','adviewer'].forEach(dept=>{
+      ['reception','tiles','sanitary','kitchen','windows'].forEach(dept=>{
         merged[dept] = JSON.stringify(staff[dept])!==JSON.stringify(baseline[dept]) ? staff[dept] : fresh[dept];
       });
       merged.marketingPersons = JSON.stringify(staff.marketingPersons)!==JSON.stringify(baseline.marketingPersons) ? staff.marketingPersons : fresh.marketingPersons;
@@ -1113,7 +1112,7 @@ function renderNameCardBody(){
     bindNameTypeahead('headNameInput', 'headNameSuggestions', STAFF.heads.map(h=>h.name), renderHeadPassArea);
   } else {
     document.getElementById('nameCardTitle').textContent =
-      pendingRole==='reception' ? 'Reception login' : (pendingRole==='adviewer' ? 'Ad Manager login (view only)' : `${TEAM_LABELS[pendingRole]} team login`);
+      pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
     const list = staffListForRole(pendingRole);
     if(!list.length){
       body.innerHTML = STORAGE_ERROR
@@ -1237,6 +1236,10 @@ function checkAndNotifyDueToday(){
 }
 
 async function loginAs(role, name){
+  // An Ad Manager is created under Reception (flagged isAdManager) and signs in
+  // through the Reception login, but the session runs as the read-only 'adviewer' role.
+  const loginRole = role;
+  if(role==='reception' && (staffListForRole('reception').find(p=>p.name===name)||{}).isAdManager) role = 'adviewer';
   const isAssistantAcct = role!=='head' && role!=='reception' && (staffListForRole(role).find(p=>p.name===name)||{}).isAssistant;
   SESSION = {role, name, isAssistant: !!isAssistantAcct};
   // Not awaited — it involves a permission prompt and shouldn't hold up login.
@@ -1249,7 +1252,7 @@ async function loginAs(role, name){
   document.getElementById('mainApp').classList.remove('hidden');
   const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':role==='adviewer'?'Ad Manager (View only)':(TEAM_LABELS[role]+' Sales'+(SESSION.isAssistant?' Assistant':'')));
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
-  recordLastLogin(role, name);
+  recordLastLogin(loginRole, name);
   await saveStaff(STAFF, true);
   if(role==='head' || role==='reception'){
     CONNECTIONS = await loadConnections();
@@ -3502,7 +3505,7 @@ function connectionCard(c, opts){
       <div class="assign-block hidden" id="sendToReceptionForm-${c.id}" style="margin-top:8px;">
         <label>Send to</label>
         <select class="sendToReceptionPersonSel" data-conn="${c.id}">
-          ${(STAFF.reception||[]).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
+          ${(STAFF.reception||[]).filter(p=>!p.isAdManager).map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}
         </select>
         <label>Note (optional)</label>
         <textarea class="sendToReceptionNote" data-conn="${c.id}" placeholder="e.g. please try to fix a meeting this week"></textarea>
@@ -3729,8 +3732,8 @@ function pushStatusHtml(p){
   return `<div class="lead-meta">${on ? `🔔 Push notifications: <b style="color:var(--ok);">On</b> (${p.fcmTokens.length} device${p.fcmTokens.length>1?'s':''})` : `🔕 Push notifications: <b style="color:var(--bad);">Off</b>`}</div>`;
 }
 function viewManageLogins(){
-  const depts = ['reception','tiles','sanitary','kitchen','windows','adviewer'];
-  const deptTitle = d => d==='reception' ? 'Reception' : (d==='adviewer' ? 'Ad Manager (view only — Digital Ad leads)' : 'Sales – '+TEAM_LABELS[d]);
+  const depts = ['reception','tiles','sanitary','kitchen','windows'];
+  const deptTitle = d => d==='reception' ? 'Reception' : 'Sales – '+TEAM_LABELS[d];
   return `
   <div class="card">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
@@ -3738,12 +3741,17 @@ function viewManageLogins(){
     <select id="newLoginDept">
       <option value="reception">Reception</option>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">Sales – ${v}</option>`).join('')}
-      <option value="adviewer">Ad Manager (view only — Digital Ad leads)</option>
     </select>
     <label>Name</label>
     <input type="text" id="newLoginName" placeholder="Full name">
     <label>Password</label>
     <input type="password" id="newLoginPass" placeholder="Set a password for them (min 4 characters)">
+    <div id="newLoginAdMgrWrap" class="hidden">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+        <input type="checkbox" id="newLoginIsAdManager" style="width:auto;margin:0;">
+        This is the Ad Manager (view only — sees Digital Ad leads and their follow-ups, can't edit anything)
+      </label>
+    </div>
     <div id="newLoginAssistantWrap">
       <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
         <input type="checkbox" id="newLoginIsAssistant" style="width:auto;margin:0;">
@@ -3776,7 +3784,7 @@ function viewManageLogins(){
       <div class="card" style="padding:10px 14px;">
         <div class="card-row">
           <div>
-            <div class="lead-name" style="font-size:14px;">${esc(p.name)} ${p.isAssistant?'<span class="badge badge-followup" style="margin-left:4px;">Assistant</span>':''}</div>
+            <div class="lead-name" style="font-size:14px;">${esc(p.name)} ${p.isAssistant?'<span class="badge badge-followup" style="margin-left:4px;">Assistant</span>':''}${p.isAdManager?'<span class="badge badge-followup" style="margin-left:4px;">Ad Manager · view only</span>':''}</div>
             <div class="lead-meta">${lastLoginText(p)}</div>
             ${pushStatusHtml(p)}
             ${p.isAssistant ? `<div class="lead-meta">${(p.helping&&p.helping.length) ? `Currently helping: ${p.helping.map(h=>`${esc(h.salesperson)} (${TEAM_LABELS[h.team]})`).join(', ')}` : 'Not currently helping anyone'}</div>` : ''}
@@ -3849,7 +3857,9 @@ function bindManageLoginsHandlers(){
   const newLoginAssistantWrap = document.getElementById('newLoginAssistantWrap');
   function toggleAssistantWrap(){
     if(newLoginDeptSel && newLoginAssistantWrap){
-      newLoginAssistantWrap.classList.toggle('hidden', newLoginDeptSel.value==='reception' || newLoginDeptSel.value==='adviewer');
+      newLoginAssistantWrap.classList.toggle('hidden', newLoginDeptSel.value==='reception');
+      const adWrap = document.getElementById('newLoginAdMgrWrap');
+      if(adWrap) adWrap.classList.toggle('hidden', newLoginDeptSel.value!=='reception');
     }
   }
   if(newLoginDeptSel){ toggleAssistantWrap(); newLoginDeptSel.addEventListener('change', toggleAssistantWrap); }
@@ -3861,12 +3871,14 @@ function bindManageLoginsHandlers(){
       const name = document.getElementById('newLoginName').value.trim();
       const pass = document.getElementById('newLoginPass').value;
       const isAssistantChk = document.getElementById('newLoginIsAssistant');
-      const isAssistant = dept!=='reception' && dept!=='adviewer' && isAssistantChk && isAssistantChk.checked;
+      const isAssistant = dept!=='reception' && isAssistantChk && isAssistantChk.checked;
+      const adMgrChk = document.getElementById('newLoginIsAdManager');
+      const isAdManager = dept==='reception' && !!(adMgrChk && adMgrChk.checked);
       if(!name){ toast('Enter a name'); return; }
       if(!pass || pass.length<4){ toast('Password must be at least 4 characters'); return; }
       if(!STAFF[dept]) STAFF[dept]=[];
       if(STAFF[dept].some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists in this department'); return; }
-      STAFF[dept].push(isAssistant ? {name, pass, isAssistant:true, helping:[]} : {name, pass});
+      STAFF[dept].push(isAssistant ? {name, pass, isAssistant:true, helping:[]} : (isAdManager ? {name, pass, isAdManager:true} : {name, pass}));
       await saveStaff(STAFF);
       toast(`Login created for ${name}`);
       renderApp();

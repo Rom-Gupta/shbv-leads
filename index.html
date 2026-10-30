@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261026082538';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261030144630';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -267,6 +267,7 @@
       <div class="role-btn" data-role="sanitary">Sales – Sanitary</div>
       <div class="role-btn" data-role="kitchen">Sales – Kitchen/Wardrobe</div>
       <div class="role-btn" data-role="windows">Sales – Windows</div>
+      <div class="role-btn" data-role="adviewer">Ad Manager (View only)</div>
     </div>
   </div>
 
@@ -457,6 +458,7 @@ async function loadConnections(){
 let CONNECTIONS_SYNCED_SNAPSHOT = [];
 function updateConnectionsSyncedSnapshot(){ CONNECTIONS_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(CONNECTIONS)); }
 async function saveConnections(list){
+  if(isAdViewer()) return false;
   const baseline = CONNECTIONS_SYNCED_SNAPSHOT;
   try{
     if(USE_FIREBASE){
@@ -538,6 +540,7 @@ async function loadLeads(){
 let LEADS_SYNCED_SNAPSHOT = [];
 function updateLeadsSyncedSnapshot(){ LEADS_SYNCED_SNAPSHOT = JSON.parse(JSON.stringify(LEADS)); }
 async function saveLeads(leads){
+  if(isAdViewer()){ toast('View-only login — changes are not saved.'); return false; }
   const baseline = LEADS_SYNCED_SNAPSHOT;
   LEADS = leads;
   try{
@@ -594,12 +597,12 @@ async function saveLeads(leads){
   }catch(e){ console.error('save leads failed', e); STORAGE_ERROR = true; toast('Could not save — check your connection.'); return false; }
 }
 function defaultStaff(){
-  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], marketingPersons:[], digitalSources:[],
+  return {reception:[],tiles:[],sanitary:[],kitchen:[],windows:[], adviewer:[], marketingPersons:[], digitalSources:[],
     heads:[{name:'Romanshu Gupta',pass:''},{name:'Nishant Gupta',pass:''},{name:'Naresh Gupta',pass:''}]};
 }
 function normalizeStaffObj(s){
   if(!s) return defaultStaff();
-  ['reception','tiles','sanitary','kitchen','windows'].forEach(k=>{
+  ['reception','tiles','sanitary','kitchen','windows','adviewer'].forEach(k=>{
     if(!Array.isArray(s[k])) s[k]=[];
     s[k] = s[k].map(entry => typeof entry==='string' ? {name:entry, pass:''} : entry);
     s[k].forEach(p=>{
@@ -655,7 +658,7 @@ async function saveStaff(staff, fast){
       const freshDoc = await db.collection('shbv_kv').doc('staff-data').get();
       const fresh = normalizeStaffObj(freshDoc.exists ? JSON.parse(freshDoc.data().value) : null);
       const merged = {...fresh};
-      ['reception','tiles','sanitary','kitchen','windows'].forEach(dept=>{
+      ['reception','tiles','sanitary','kitchen','windows','adviewer'].forEach(dept=>{
         merged[dept] = JSON.stringify(staff[dept])!==JSON.stringify(baseline[dept]) ? staff[dept] : fresh[dept];
       });
       merged.marketingPersons = JSON.stringify(staff.marketingPersons)!==JSON.stringify(baseline.marketingPersons) ? staff.marketingPersons : fresh.marketingPersons;
@@ -881,6 +884,10 @@ function normalizeLead(l){
 let LEADS = [];
 let STAFF = {tiles:[],sanitary:[],kitchen:[],windows:[],reception:[]};
 let SESSION = null; // {role: 'reception'|'head'|'tiles'|..., name: 'X'}
+// Ad Manager (role 'adviewer') is strictly read-only and only ever sees leads that
+// came in as Digital Ad. Everything that lists leads for that role goes through here.
+function isAdViewer(){ return !!SESSION && SESSION.role==='adviewer'; }
+function scopedLeads(){ return isAdViewer() ? LEADS.filter(l=>l.source==='Digital Ad') : LEADS; }
 let STORAGE_ERROR = false; // true if saving/loading data is currently failing
 let ACTIVE_TAB = 'inbox';
 let ACTIVE_SUBTAB = null;
@@ -1106,7 +1113,7 @@ function renderNameCardBody(){
     bindNameTypeahead('headNameInput', 'headNameSuggestions', STAFF.heads.map(h=>h.name), renderHeadPassArea);
   } else {
     document.getElementById('nameCardTitle').textContent =
-      pendingRole==='reception' ? 'Reception login' : `${TEAM_LABELS[pendingRole]} team login`;
+      pendingRole==='reception' ? 'Reception login' : (pendingRole==='adviewer' ? 'Ad Manager login (view only)' : `${TEAM_LABELS[pendingRole]} team login`);
     const list = staffListForRole(pendingRole);
     if(!list.length){
       body.innerHTML = STORAGE_ERROR
@@ -1205,7 +1212,7 @@ function requestNotificationPermissionIfNeeded(){
   }
 }
 function currentUserDueTodayCount(){
-  if(!SESSION) return 0;
+  if(!SESSION || SESSION.role==='adviewer') return 0;
   if(SESSION.role==='reception') return receptionDueTodayCount();
   if(SESSION.role==='head') return headDueTodayCount() + myConnectionsDueTodayCount();
   if(SESSION.isAssistant) return assistantDueTodayLeads().length;
@@ -1236,11 +1243,11 @@ async function loginAs(role, name){
   // No-ops entirely until VAPID_PUBLIC_KEY above is filled in.
   enablePushNotifications();
   KNOWN_MY_ASSIGNMENT_IDS = myRelevantAssignmentIds();
-  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='head' ? 'overview' : (SESSION.isAssistant ? 'route' : 'myleads'));
+  ACTIVE_TAB = role==='reception' ? 'inbox' : (role==='adviewer' ? 'leads' : role==='head' ? 'overview' : (SESSION.isAssistant ? 'route' : 'myleads'));
   ACTIVE_SUBTAB = null;
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
-  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':(TEAM_LABELS[role]+' Sales'+(SESSION.isAssistant?' Assistant':'')));
+  const roleLabel = role==='head' ? 'Head' : (role==='reception'?'Reception':role==='adviewer'?'Ad Manager (View only)':(TEAM_LABELS[role]+' Sales'+(SESSION.isAssistant?' Assistant':'')));
   document.getElementById('whoLabel').textContent = `${name} · ${roleLabel}`;
   recordLastLogin(role, name);
   await saveStaff(STAFF, true);
@@ -1766,6 +1773,10 @@ function receptionUnreferredCountBySource(source){
 
 /* ---------------- Tabs ---------------- */
 function tabsFor(role){
+  if(role==='adviewer') return [
+    {id:'leads', label:'Digital Ad Leads'},
+    {id:'upcoming', label:'Upcoming Follow-ups'},
+  ];
   if(role==='reception') return [
     {id:'inbox', label:'My Leads', badge:()=>receptionDueTodayCount(),
       sub:[
@@ -1876,7 +1887,9 @@ async function renderApp(){
   renderTabs();
   destroyAnalyticsCharts();
   const area = document.getElementById('viewArea');
-  if(SESSION.role==='reception'){
+  if(SESSION.role==='adviewer'){
+    area.innerHTML = ACTIVE_TAB==='upcoming' ? viewUpcomingFollowups() : viewAllLeads(true);
+  } else if(SESSION.role==='reception'){
     if(ACTIVE_TAB==='inbox') area.innerHTML = viewReceptionInbox(ACTIVE_SUBTAB||'all');
     else if(ACTIVE_TAB==='crosssell') area.innerHTML = viewCrossSell();
     else if(ACTIVE_TAB==='connectioncalls'){
@@ -1948,8 +1961,8 @@ function followupBadgeFor(dateStr){
 }
 function collectUpcomingFollowups(){
   const entries = [];
-  if(SESSION.role==='head'){
-    LEADS.forEach(l=>{
+  if(SESSION.role==='head' || SESSION.role==='adviewer'){
+    scopedLeads().forEach(l=>{
       (l.assignments||[]).forEach(a=>{
         if(a.nextFollowUp) entries.push({lead:l, label:`${TEAM_LABELS[a.team]} — ${a.salesperson}`, date:a.nextFollowUp, team:a.team, salesperson:a.salesperson});
       });
@@ -1980,7 +1993,7 @@ function collectUpcomingFollowups(){
 function viewUpcomingFollowups(){
   const entries = collectUpcomingFollowups();
   const meetingCount = collectUpcomingMeetings().length;
-  const exportBtnHtml = meetingCount ? `<button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin-bottom:12px;">⬇ Export ${meetingCount} Meeting${meetingCount>1?'s':''} (.ics)</button>` : '';
+  const exportBtnHtml = (meetingCount && !isAdViewer()) ? `<button class="btn btn-brass btn-sm" id="exportAllMeetingsBtn" style="margin-bottom:12px;">⬇ Export ${meetingCount} Meeting${meetingCount>1?'s':''} (.ics)</button>` : '';
   if(!entries.length) return exportBtnHtml + `<div class="empty">No upcoming follow-ups scheduled.</div>`;
   return exportBtnHtml + entries.map(e=>`
     <div class="card">
@@ -3716,7 +3729,8 @@ function pushStatusHtml(p){
   return `<div class="lead-meta">${on ? `🔔 Push notifications: <b style="color:var(--ok);">On</b> (${p.fcmTokens.length} device${p.fcmTokens.length>1?'s':''})` : `🔕 Push notifications: <b style="color:var(--bad);">Off</b>`}</div>`;
 }
 function viewManageLogins(){
-  const depts = ['reception','tiles','sanitary','kitchen','windows'];
+  const depts = ['reception','tiles','sanitary','kitchen','windows','adviewer'];
+  const deptTitle = d => d==='reception' ? 'Reception' : (d==='adviewer' ? 'Ad Manager (view only — Digital Ad leads)' : 'Sales – '+TEAM_LABELS[d]);
   return `
   <div class="card">
     <h3 style="font-family:'Segoe UI',sans-serif;font-size:15px;">Create a login</h3>
@@ -3724,6 +3738,7 @@ function viewManageLogins(){
     <select id="newLoginDept">
       <option value="reception">Reception</option>
       ${Object.entries(TEAM_LABELS).map(([k,v])=>`<option value="${k}">Sales – ${v}</option>`).join('')}
+      <option value="adviewer">Ad Manager (view only — Digital Ad leads)</option>
     </select>
     <label>Name</label>
     <input type="text" id="newLoginName" placeholder="Full name">
@@ -3756,7 +3771,7 @@ function viewManageLogins(){
   `).join('')}
 
   ${depts.map(dept=>`
-    <div class="section-title" style="margin-top:16px;">${dept==='reception'?'Reception':'Sales – '+TEAM_LABELS[dept]}</div>
+    <div class="section-title" style="margin-top:16px;">${deptTitle(dept)}</div>
     ${STAFF[dept].length ? STAFF[dept].map(p=>`
       <div class="card" style="padding:10px 14px;">
         <div class="card-row">
@@ -3834,7 +3849,7 @@ function bindManageLoginsHandlers(){
   const newLoginAssistantWrap = document.getElementById('newLoginAssistantWrap');
   function toggleAssistantWrap(){
     if(newLoginDeptSel && newLoginAssistantWrap){
-      newLoginAssistantWrap.classList.toggle('hidden', newLoginDeptSel.value==='reception');
+      newLoginAssistantWrap.classList.toggle('hidden', newLoginDeptSel.value==='reception' || newLoginDeptSel.value==='adviewer');
     }
   }
   if(newLoginDeptSel){ toggleAssistantWrap(); newLoginDeptSel.addEventListener('change', toggleAssistantWrap); }
@@ -3846,7 +3861,7 @@ function bindManageLoginsHandlers(){
       const name = document.getElementById('newLoginName').value.trim();
       const pass = document.getElementById('newLoginPass').value;
       const isAssistantChk = document.getElementById('newLoginIsAssistant');
-      const isAssistant = dept!=='reception' && isAssistantChk && isAssistantChk.checked;
+      const isAssistant = dept!=='reception' && dept!=='adviewer' && isAssistantChk && isAssistantChk.checked;
       if(!name){ toast('Enter a name'); return; }
       if(!pass || pass.length<4){ toast('Password must be at least 4 characters'); return; }
       if(!STAFF[dept]) STAFF[dept]=[];
@@ -4421,8 +4436,8 @@ function bindMsFilters(onChange){
 let MS_DOCUMENT_CLICK_BOUND = false;
 function viewAllLeads(){
   const salespeople = allSalespeopleList();
-  const {names:marketingNames, counts:marketingCounts} = sourceDetailNameList();
-  const cities = Array.from(new Set(LEADS.map(l=>l.city).filter(Boolean))).sort();
+  const {names:marketingNames, counts:marketingCounts} = sourceDetailNameList(isAdViewer() ? scopedLeads() : undefined);
+  const cities = Array.from(new Set(scopedLeads().map(l=>l.city).filter(Boolean))).sort();
   return `
   ${SESSION.role==='head' ? `<button class="btn btn-ghost btn-sm" id="exportFullBackupBtn" style="margin-bottom:12px;">⬇ Full Data Backup (JSON — every detail)</button>` : ''}
   <button class="btn btn-ghost btn-sm" id="exportFilteredCsvBtn" style="margin-bottom:12px;">⬇ Download Filtered Leads (CSV)</button>
@@ -4631,7 +4646,7 @@ function filterLeadsList(baseList, search, team, status, salesperson, companyFil
   return resultCountLine(list.length) + list.map(l=>leadCardHead(l)).join('');
 }
 function renderAllLeadsResults(search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo){
-  return filterLeadsList(LEADS, search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo);
+  return filterLeadsList(scopedLeads(), search, team, status, salesperson, companyFilter, marketingFilter, unreferredFilter, sourceFilter, cityFilter, categoryFilter, dateFrom, dateTo);
 }
 // Leads with any activity (created, referred, or logged) within a date range — used by
 // the Weekly/Monthly report "All Leads In This Period" sections.
@@ -4984,7 +4999,7 @@ function downloadFilteredLeadsCSV(){
   const filterDateFrom = document.getElementById('filterDateFrom');
   const filterDateTo = document.getElementById('filterDateTo');
   const list = computeFilteredLeadsList(
-    LEADS,
+    scopedLeads(),
     searchBox?searchBox.value:'',
     msGetValues('team'),
     msGetValues('status'),
@@ -5667,12 +5682,26 @@ function viewReports(){
 function openLeadModal(leadId, focusAssignId, mode, focusSection){
   const lead = LEADS.find(l=>l.id===leadId);
   if(!lead) return;
+  if(isAdViewer() && lead.source!=='Digital Ad') return;
   const overlay = document.createElement('div');
   overlay.className='modal-overlay';
   overlay.id='modalOverlay';
   overlay.innerHTML = `<div class="modal" id="modalBox">${renderLeadDetail(lead, focusAssignId, mode)}</div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e)=>{ if(e.target.id==='modalOverlay') closeModal(); });
+  if(isAdViewer()){
+    // Read-only: strip every form control and action button, bind nothing but
+    // close and "view" links. Writes are also blocked in saveLeads/saveConnections.
+    const box = document.getElementById('modalBox');
+    box.querySelectorAll('input,select,textarea,form,button').forEach(el=>{
+      if(el.id==='closeModalBtn' || el.hasAttribute('data-open-lead')) return;
+      el.remove();
+    });
+    box.insertAdjacentHTML('afterbegin', '<div class="lead-meta" style="padding:6px 10px;margin-bottom:8px;background:var(--info-bg);color:var(--info);border-radius:8px;font-weight:600;">👁 View only</div>');
+    document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+    box.querySelectorAll('[data-open-lead]').forEach(el=> el.addEventListener('click', ()=>{ closeModal(); openLeadModal(el.dataset.openLead, null, 'view', null); }));
+    return;
+  }
   bindModalHandlers(lead);
   if(focusSection && focusAssignId){
     setTimeout(()=>{
@@ -5696,7 +5725,7 @@ function closeModal(){
 
 function renderLeadDetail(lead, focusAssignId, mode){
   const isReception = SESSION.role==='reception';
-  const isHead = SESSION.role==='head';
+  const isHead = SESSION.role==='head' || SESSION.role==='adviewer';
   const isSales = !isReception && !isHead;
   mode = mode || 'view';
 
@@ -5711,7 +5740,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   </div>`;
 
   // Repeat customer detection — same phone number on other lead records
-  const siblingLeads = LEADS.filter(l2=> l2.id!==lead.id && normalizePhone(l2.phone)===normalizePhone(lead.phone));
+  const siblingLeads = scopedLeads().filter(l2=> l2.id!==lead.id && normalizePhone(l2.phone)===normalizePhone(lead.phone));
   if(siblingLeads.length){
     if(isSales){
       html += `<div class="lead-meta" style="margin-bottom:10px;padding:8px 12px;background:var(--info-bg);color:var(--info);border-radius:8px;font-weight:600;">🔁 Returning customer — ${siblingLeads.length} other lead record(s) with us.</div>`;

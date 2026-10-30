@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261030145722';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261030151835';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -239,6 +239,11 @@
     position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--teal);color:#fff;
     padding:10px 18px;border-radius:20px;font-size:13.5px;z-index:100;box-shadow:0 6px 18px rgba(0,0,0,.2);
   }
+
+  .daily-thought{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:10px 14px;border-radius:12px;background:linear-gradient(90deg,#f1e8d6,#f7f1e4);border:1px solid #e8dcc3;}
+  .daily-thought .dt-ic{font-size:16px;line-height:1.3;}
+  .daily-thought .dt-k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#a9885a;font-weight:800;}
+  .daily-thought .dt-t{font-size:14px;color:#3a3226;line-height:1.35;font-weight:600;}
 </style>
 </head>
 <body>
@@ -287,6 +292,8 @@
     </div>
     <button class="btn btn-ghost btn-sm" id="logoutBtn">Switch user</button>
   </div>
+
+  <div class="daily-thought" id="dailyThought"><div class="dt-ic">✨</div><div><div class="dt-k">Thought of the day</div><div class="dt-t" id="dailyThoughtText"></div></div></div>
 
   <div id="storageBanner" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:12px;font-weight:600;">
     ⚠ Not connected to storage right now — anything you enter may not be saved. Try reloading the page, and tell your admin if this keeps happening.
@@ -1883,8 +1890,20 @@ function renderTabs(){
   }
 }
 
+
+// Daily thought — one line from this list per calendar day (same for everyone,
+// changes at local midnight). Pure client-side, no data needed.
+const DAILY_THOUGHTS = ["Aaj ka ek achha call, kal ka bada sale ban sakta hai.", "Customer ko sunna sabse badi selling skill hai.", "Small follow-ups, big results. Never skip the call.", "Mehnat ka phal hamesha milta hai, bas rukna nahi.", "Har 'no' ek 'yes' ke aur paas le jaata hai.", "Smile se shuru karo, sale khud ho jayegi.", "Jo kaam aaj kar sakte ho, use kal par mat chhodo.", "Trust banao pehle, sale baad mein aayegi.", "Ek happy customer, das naye customers laata hai.", "Consistency beats talent when talent doesn't show up.", "Fast reply, strong impression.", "Achhi service hi sabse achha advertisement hai.", "Aaj ka follow-up, kal ka sale.", "Lead ko kabhi bhoolo mat, wo tumhe yaad rakhega.", "Patience rakho, sahi customer zaroor aayega.", "Chhoti baat bhi dhyan se suno, bada deal wahin se nikalta hai.", "Don't sell tiles, sell the dream home.", "Har customer ki baat ko izzat do.", "Success ek din mein nahi, roz ke chhote kadmon se aati hai.", "Teamwork se mushkil kaam bhi aasaan ho jaata hai.", "Notes likho, details yaad rakho, trust jeeto.", "Jab sab thak jaayein, tab ek call aur karo.", "Kaam acha karo, naam apne aap ho jayega.", "Be so helpful that customers can't forget you.", "Subah ki shuruaat positive rakho, poora din badal jayega.", "Ek achhi baat, ek achha rishta, ek achhi sale.", "Rejection se mat daro, usse seekho.", "Jo customer aaj nahi bola, wo kal haan bol sakta hai.", "Quality ki baat karo, price ki baat apne aap set ho jayegi.", "Time par call karna, time par jawab dena: professionalism yahi hai.", "Discipline hi motivation ko result mein badalta hai.", "Humble raho, hungry raho.", "Customer se sach bolo, wo hamesha lautkar aayega.", "Har din ek step aage, yahi growth hai.", "Dukaan sirf tiles ki nahi, bharose ki bhi hai.", "Don't wait for a perfect day, make today count.", "Dil se bola gaya shabd, deal ka rukh badal deta hai.", "Chinta nahi, chinta karo kaam ki.", "Team jeetegi tabhi, jab har banda apna role nibhayega.", "Kal se behtar aaj, aaj se behtar kal.", "Ek call, ek mauka, ek naya customer.", "Hard work puts you where luck can find you.", "Customer ki problem solve karo, sale apne aap ho jayegi.", "Jaldi nahi, par der bhi nahi: sahi time par follow-up karo.", "Good things come to those who follow up.", "Apna best do, baaki upar wale par chhod do.", "Sabr ka phal meetha hota hai, aur sale ka bhi.", "Aaj kisi ka din achha banao, wo aapko yaad rakhega.", "Clear baat, clean deal.", "Kaam chhota ho ya bada, lagan poori rakho.", "Jo log shikayat sunte hain, wahi bade bante hain.", "Every lead is someone's dream waiting to be built.", "Energy high, attitude positive, results guaranteed.", "Pehle bharosa, phir business.", "Har galti ek sabak hai, use dohrana mat.", "Mushkil waqt mein bhi muskurana seekho.", "Sunne mein dhyan do, bolne mein sabr rakho.", "Aaj ki mehnat, kal ki kamai.", "Sab kuch seekha ja sakta hai, bas shuruaat karo.", "Be the reason a customer comes back.", "Vishwas rakho, safalta pass hi hai.", "Ek leader sabse pehle kaam karta hai, phir kehta hai.", "Details par dhyan do, perfection wahin chhupa hai.", "Jis kaam mein dil lagta hai, wahan thakaan nahi hoti.", "Customer bhagwan hota hai, use sammaan do.", "Speed + care = happy customers.", "Chhote target todo, bade sapne apne aap poore honge.", "Naya din, nayi umeed, naye leads.", "Stay curious, stay kind, stay consistent.", "Jo aaj sikhta hai, wahi kal sikhata hai.", "Reputation banane mein saalon lagte hain, bachane mein roz mehnat.", "Sach bolne wala kabhi nahi darta, na customer se, na deal se.", "Apne kaam par garv karo, SHBV ki pehchaan tum ho.", "Opportunity darwaze par dastak deti hai, call uthao.", "Ek achha shuruaati hello, poori baat ka mood set kar deta hai.", "Sirf bechna nahi, madad karna seekho.", "Har din ek chhoti jeet celebrate karo.", "Aaj ka kaam poora, kal ki chinta kam.", "Ek aur call kar lo, kya pata wahi 'haan' ho.", "Jahan koshish hai, wahan raasta hai.", "Lead cold ho jaaye, usse pehle phone garam kar do.", "Team ka har member khaas hai, sabka respect karo.", "Chai pi lo, fir ek aur call kar lo.", "Sab ke saath shaant aur sahi tareeke se baat karo."];
+function renderDailyThought(){
+  const el = document.getElementById('dailyThoughtText');
+  if(!el) return;
+  const d = new Date();
+  const dayNum = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+  el.textContent = DAILY_THOUGHTS[dayNum % DAILY_THOUGHTS.length];
+}
 /* ---------------- Main render dispatch ---------------- */
 async function renderApp(){
+  renderDailyThought();
   const banner = document.getElementById('storageBanner');
   if(banner) banner.classList.toggle('hidden', !STORAGE_ERROR);
   renderTabs();

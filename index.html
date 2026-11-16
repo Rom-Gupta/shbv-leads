@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261116071310';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261116071330';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -996,7 +996,10 @@ function splitStoredPhone(p){
 function composeStoredPhone(cc, typed){
   const t = (typed||'').trim();
   if(!t) return '';
-  if(t.startsWith('+')) return '+' + t.replace(/\D/g,''); // typed a full international number
+  if(t.startsWith('+')){                                    // typed a full international number
+    const d = t.replace(/\D/g,'');
+    return (d.startsWith('91') && d.length===12) ? d.slice(2) : '+' + d; // +91 numbers stay bare, like before
+  }
   if(!cc || cc==='+91') return t;                           // India: unchanged behaviour
   let d = t.replace(/\D/g,'').replace(/^0+/,'');
   return cc + d;
@@ -1093,9 +1096,10 @@ function collectAltPhones(prefix, primary){
   return out;
 }
 function findLeadsByPhone(phone){
-  const norm = normalizePhone(phone);
+  const canon = p => { let d = normalizePhone(p); if(d.length===12 && d.startsWith('91')) d = d.slice(2); else if(d.length===11 && d.startsWith('0')) d = d.slice(1); return d; };
+  const norm = canon(phone);
   if(!norm) return [];
-  return LEADS.filter(l => allLeadPhones(l).some(p=> normalizePhone(p) === norm));
+  return LEADS.filter(l => allLeadPhones(l).some(p=> canon(p) === norm));
 }
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }

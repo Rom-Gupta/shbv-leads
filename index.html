@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261030152148';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261116071136';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -205,6 +205,7 @@
     border-radius:8px 0 0 8px;background:#F3F1EA;color:var(--ink-soft);font-size:14.5px;font-weight:600;white-space:nowrap;
   }
   .phone-input-group input[type=tel]{border-radius:0 8px 8px 0;margin-bottom:0;}
+  .phone-input-group select.phone-cc{width:auto;max-width:150px;margin-bottom:0;cursor:pointer;appearance:auto;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
   .filter-row select{width:auto;margin-bottom:0;font-size:13px;padding:7px 10px;}
   .filter-row input[type=date]{width:auto;margin-bottom:0;font-size:13px;padding:6px 10px;}
@@ -965,13 +966,53 @@ function pipelineRemainingHtml(a){
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function normalizePhone(p){ return (p||'').replace(/\D/g,''); }
-// Builds a wa.me click-to-chat link, assuming Indian numbers when no country code is present.
-function whatsappLink(p){
-  let digits = normalizePhone(p);
-  if(!digits) return null;
+// ---- Phone numbers & country codes ----
+// Indian numbers are stored as plain digits (+91 assumed, exactly as before). A number
+// for any other country is stored in full international form, e.g. "+14155551234".
+const PHONE_CODES = [
+  ['+91','India'],['+1','USA / Canada'],['+44','UK'],['+971','UAE'],['+61','Australia'],['+64','New Zealand'],
+  ['+65','Singapore'],['+966','Saudi Arabia'],['+974','Qatar'],['+968','Oman'],['+965','Kuwait'],['+973','Bahrain'],
+  ['+977','Nepal'],['+94','Sri Lanka'],['+880','Bangladesh'],['+92','Pakistan'],['+60','Malaysia'],['+49','Germany'],
+  ['+33','France'],['+39','Italy'],['+81','Japan'],['+27','South Africa']
+];
+function phoneCcSelectHtml(attrs, selected){
+  selected = selected || '+91';
+  return `<select class="phone-prefix phone-cc" ${attrs||''} title="Country code">` +
+    PHONE_CODES.map(([c,n])=>`<option value="${c}" ${c===selected?'selected':''}>${c} ${n}</option>`).join('') + `</select>`;
+}
+// Splits a stored number into {cc, num} so the edit form can pre-select the country.
+function splitStoredPhone(p){
+  const raw = (p||'').trim();
+  if(raw.startsWith('+')){
+    const digits = raw.replace(/\D/g,'');
+    const hit = PHONE_CODES.slice().sort((a,b)=>b[0].length-a[0].length).find(([c])=> digits.startsWith(c.slice(1)));
+    if(hit && hit[0]!=='+91') return {cc:hit[0], num:digits.slice(hit[0].length-1)};
+    if(hit && hit[0]==='+91') return {cc:'+91', num:digits.slice(2)};
+  }
+  return {cc:'+91', num:raw};
+}
+// Turns the country dropdown + typed number into what gets stored.
+function composeStoredPhone(cc, typed){
+  const t = (typed||'').trim();
+  if(!t) return '';
+  if(t.startsWith('+')) return '+' + t.replace(/\D/g,''); // typed a full international number
+  if(!cc || cc==='+91') return t;                           // India: unchanged behaviour
+  let d = t.replace(/\D/g,'').replace(/^0+/,'');
+  return cc + d;
+}
+// Full international digits for tel:/wa.me — India by default when there's no explicit +.
+function fullPhoneDigits(p){
+  const raw = (p||'').trim();
+  let digits = normalizePhone(raw);
+  if(!digits) return '';
+  if(raw.startsWith('+')) return digits;
   if(digits.length===10) digits = '91'+digits;
   else if(digits.length===11 && digits.startsWith('0')) digits = '91'+digits.slice(1);
-  return `https://wa.me/${digits}`;
+  return digits;
+}
+function whatsappLink(p){
+  const digits = fullPhoneDigits(p);
+  return digits ? `https://wa.me/${digits}` : null;
 }
 function whatsappIcon(p){
   const link = whatsappLink(p);
@@ -979,22 +1020,23 @@ function whatsappIcon(p){
   return `<a href="${link}" target="_blank" rel="noopener" title="Chat on WhatsApp" style="margin-left:6px;text-decoration:none;color:var(--ok);font-weight:700;" onclick="event.stopPropagation();">💬</a>`;
 }
 function callLink(p){
-  let digits = normalizePhone(p);
-  if(!digits) return null;
-  if(digits.length===10) digits = '91'+digits;
-  else if(digits.length===11 && digits.startsWith('0')) digits = '91'+digits.slice(1);
-  return `tel:+${digits}`;
+  const digits = fullPhoneDigits(p);
+  return digits ? `tel:+${digits}` : null;
 }
 function callIcon(p){
   const link = callLink(p);
   if(!link) return '';
   return `<a href="${link}" title="Call" style="margin-left:6px;text-decoration:none;color:var(--teal);font-weight:700;" onclick="event.stopPropagation();">📞</a>`;
 }
-// Displays a saved number with a +91 country code by default, since that's what
-// every number in this app is assumed to be unless it already has a code.
+// Displays a saved number with its country code (+91 by default for Indian numbers).
 function displayPhone(p){
-  const digits = normalizePhone(p);
+  const raw = (p||'').trim();
+  const digits = normalizePhone(raw);
   if(!digits) return '—';
+  if(raw.startsWith('+') && !digits.startsWith('91')){
+    const {cc, num} = splitStoredPhone(raw);
+    return cc!=='+91' ? `${cc} ${num}` : `+91 ${num}`;
+  }
   if(digits.length===10) return `+91 ${digits}`;
   if(digits.length===11 && digits.startsWith('0')) return `+91 ${digits.slice(1)}`;
   if(digits.startsWith('91') && digits.length===12) return `+${digits.slice(0,2)} ${digits.slice(2)}`;
@@ -2421,8 +2463,8 @@ function viewAddLead(){
     <input type="text" id="newLeadName" placeholder="Full name">
     <label>Phone number</label>
     <div class="phone-input-group">
-      <span class="phone-prefix">+91</span>
-      <input type="tel" id="newLeadPhone" placeholder="10-digit number">
+      ${phoneCcSelectHtml('id="newLeadPhoneCc"')}
+      <input type="tel" id="newLeadPhone" placeholder="Phone number">
     </div>
     <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
     <label>State</label>
@@ -3277,8 +3319,8 @@ function viewConnectionsAdd(){
     <input type="text" id="connName" placeholder="Full name">
     <label>Phone number</label>
     <div class="phone-input-group">
-      <span class="phone-prefix">+91</span>
-      <input type="tel" id="connPhone" placeholder="10-digit number">
+      ${phoneCcSelectHtml('id="connPhoneCc"')}
+      <input type="tel" id="connPhone" placeholder="Phone number">
     </div>
     <label>Work / Occupation</label>
     <input type="text" id="connWork" placeholder="e.g. Architect, Contractor, Interior Designer">
@@ -3525,8 +3567,8 @@ function connectionCard(c, opts){
     <input type="text" class="connEditName" data-conn="${c.id}" value="${esc(c.name)}">
     <label>Phone number</label>
     <div class="phone-input-group">
-      <span class="phone-prefix">+91</span>
-      <input type="tel" class="connEditPhone" data-conn="${c.id}" value="${esc(c.phone)}">
+      ${phoneCcSelectHtml(`class="phone-prefix phone-cc connEditPhoneCc" data-conn="${c.id}"`, splitStoredPhone(c.phone).cc)}
+      <input type="tel" class="connEditPhone" data-conn="${c.id}" value="${esc(splitStoredPhone(c.phone).num)}">
     </div>
     <label>Work / Occupation</label>
     <input type="text" class="connEditWork" data-conn="${c.id}" value="${esc(c.occupation||'')}">
@@ -3700,7 +3742,7 @@ function bindConnectionCardHandlers(){
       const c = CONNECTIONS.find(x=>x.id===id);
       if(!c) return;
       const name = document.querySelector(`.connEditName[data-conn="${id}"]`).value.trim();
-      const phone = document.querySelector(`.connEditPhone[data-conn="${id}"]`).value.trim();
+      const phone = composeStoredPhone(document.querySelector(`.connEditPhoneCc[data-conn="${id}"]`)?.value, document.querySelector(`.connEditPhone[data-conn="${id}"]`).value);
       if(!name || !phone){ toast('Name and phone are required'); return; }
       c.name = name;
       c.phone = phone;
@@ -6136,8 +6178,8 @@ function renderLeadDetail(lead, focusAssignId, mode){
       <input type="text" id="editLeadName" value="${esc(lead.name)}">
       <label>Phone number</label>
       <div class="phone-input-group">
-        <span class="phone-prefix">+91</span>
-        <input type="tel" id="editLeadPhone" value="${esc(lead.phone)}">
+        ${phoneCcSelectHtml('id="editLeadPhoneCc"', splitStoredPhone(lead.phone).cc)}
+        <input type="tel" id="editLeadPhone" value="${esc(splitStoredPhone(lead.phone).num)}">
       </div>
       <label>Address</label>
       <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
@@ -6742,7 +6784,7 @@ function bindDynamicHandlers(){
   if(saveConnBtn){
     saveConnBtn.addEventListener('click', async ()=>{
       const name = document.getElementById('connName').value.trim();
-      const phone = document.getElementById('connPhone').value.trim();
+      const phone = composeStoredPhone(document.getElementById('connPhoneCc')?.value, document.getElementById('connPhone').value);
       const occupation = document.getElementById('connWork').value.trim();
       const state = document.getElementById('connState').value;
       const city = document.getElementById('connCity').value.trim();
@@ -6840,7 +6882,7 @@ function bindDynamicHandlers(){
   function checkDuplicatePhone(){
     const warnBox = document.getElementById('dupPhoneWarning');
     if(!warnBox) return;
-    const phoneVal = document.getElementById('newLeadPhone').value;
+    const phoneVal = composeStoredPhone(document.getElementById('newLeadPhoneCc')?.value, document.getElementById('newLeadPhone').value);
     const matches = findLeadsByPhone(phoneVal);
     if(matches.length){
       const typedName = document.getElementById('newLeadName').value.trim().toLowerCase();
@@ -6854,6 +6896,8 @@ function bindDynamicHandlers(){
   const newLeadPhoneInput = document.getElementById('newLeadPhone');
   const newLeadNameInput = document.getElementById('newLeadName');
   if(newLeadPhoneInput) newLeadPhoneInput.addEventListener('input', checkDuplicatePhone);
+  const newLeadPhoneCc = document.getElementById('newLeadPhoneCc');
+  if(newLeadPhoneCc) newLeadPhoneCc.addEventListener('change', checkDuplicatePhone);
   if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
 
   bindCityAutocomplete('newLeadState', 'newLeadCity', 'newLeadCitySuggestions');
@@ -6941,7 +6985,7 @@ function bindDynamicHandlers(){
   if(saveNewLeadBtn){
     saveNewLeadBtn.addEventListener('click', withSavingState(saveNewLeadBtn, async ()=>{
       const name = document.getElementById('newLeadName').value.trim();
-      const phone = document.getElementById('newLeadPhone').value.trim();
+      const phone = composeStoredPhone(document.getElementById('newLeadPhoneCc')?.value, document.getElementById('newLeadPhone').value);
       const address = document.getElementById('newLeadAddress').value.trim();
       const state = document.getElementById('newLeadState').value;
       const city = document.getElementById('newLeadCity').value.trim();
@@ -7360,7 +7404,7 @@ function bindModalHandlers(lead){
       const target = LEADS.find(l=>l.id===id);
       if(!target) return;
       const name = document.getElementById('editLeadName').value.trim();
-      const phone = document.getElementById('editLeadPhone').value.trim();
+      const phone = composeStoredPhone(document.getElementById('editLeadPhoneCc')?.value, document.getElementById('editLeadPhone').value);
       const address = document.getElementById('editLeadAddress').value.trim();
       const state = document.getElementById('editLeadState').value;
       const city = document.getElementById('editLeadCity').value.trim();

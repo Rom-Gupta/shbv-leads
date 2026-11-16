@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>window.__APP_VERSION_MARKER__ = '20261116071136';</script>
+<script>window.__APP_VERSION_MARKER__ = '20261116071310';</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SHBV Lead Manager</title>
@@ -846,6 +846,7 @@ function dedupeAssignments(l){
   l.assignments = deduped;
 }
 function normalizeLead(l){
+  if(!Array.isArray(l.altPhones)) l.altPhones = [];
   if(!l.receptionLog) l.receptionLog = [];
   if(!l.assignments) l.assignments = [];
   if(!l.crossSellDismissed) l.crossSellDismissed = [];
@@ -1042,10 +1043,59 @@ function displayPhone(p){
   if(digits.startsWith('91') && digits.length===12) return `+${digits.slice(0,2)} ${digits.slice(2)}`;
   return esc(p);
 }
+// ---- Extra phone numbers on a lead (a customer may have 2+ numbers) ----
+// l.phone stays the primary; l.altPhones[] holds the rest (same storage format).
+function allLeadPhones(l){ return [l.phone, ...((l && l.altPhones)||[])].filter(Boolean); }
+function leadHasPhoneMatching(l, q){ return allLeadPhones(l).some(p=> (p||'').includes(q) || normalizePhone(p).includes(q)); }
+// Primary number + any extra numbers, each with call / WhatsApp icons.
+function phonesHtml(l){
+  if(!l) return '—';
+  const one = p => `${displayPhone(p)}${callIcon(p)}${whatsappIcon(p)}`;
+  const alts = ((l.altPhones)||[]).filter(Boolean);
+  return one(l.phone) + alts.map(p=> ` <span style="color:var(--ink-soft);">·</span> ${one(p)}`).join('');
+}
+function altPhoneRowHtml(cc, num){
+  return `<div class="phone-input-group alt-phone-row" style="margin-top:6px;">
+    ${phoneCcSelectHtml('', cc)}
+    <input type="tel" class="altPhoneInput" placeholder="Another number" value="${esc(num||'')}">
+    <button type="button" class="btn btn-ghost btn-sm removeAltPhoneBtn" style="margin-left:6px;" title="Remove">✕</button>
+  </div>`;
+}
+function altPhonesFieldHtml(prefix, existing){
+  const rows = (existing||[]).map(p=>{ const sp = splitStoredPhone(p); return altPhoneRowHtml(sp.cc, sp.num); }).join('');
+  return `<div id="${prefix}AltPhones">${rows}</div>
+    <button type="button" class="btn btn-ghost btn-sm" id="${prefix}AddAltPhoneBtn" style="margin:2px 0 10px;">+ Add another number</button>`;
+}
+function bindAltPhones(prefix){
+  const box = document.getElementById(prefix+'AltPhones');
+  const btn = document.getElementById(prefix+'AddAltPhoneBtn');
+  if(!box || !btn) return;
+  btn.addEventListener('click', ()=>{
+    if(box.querySelectorAll('.alt-phone-row').length>=4){ toast('Up to 4 extra numbers'); return; }
+    box.insertAdjacentHTML('beforeend', altPhoneRowHtml('+91',''));
+    const inputs = box.querySelectorAll('.altPhoneInput'); inputs[inputs.length-1].focus();
+  });
+  box.addEventListener('click', e=>{
+    const rm = e.target.closest('.removeAltPhoneBtn');
+    if(rm) rm.closest('.alt-phone-row').remove();
+  });
+}
+function collectAltPhones(prefix, primary){
+  const box = document.getElementById(prefix+'AltPhones');
+  if(!box) return [];
+  const seen = new Set([normalizePhone(primary)]);
+  const out = [];
+  box.querySelectorAll('.alt-phone-row').forEach(row=>{
+    const p = composeStoredPhone(row.querySelector('select').value, row.querySelector('.altPhoneInput').value);
+    const n = normalizePhone(p);
+    if(p && n && !seen.has(n)){ seen.add(n); out.push(p); }
+  });
+  return out;
+}
 function findLeadsByPhone(phone){
   const norm = normalizePhone(phone);
   if(!norm) return [];
-  return LEADS.filter(l => normalizePhone(l.phone) === norm);
+  return LEADS.filter(l => allLeadPhones(l).some(p=> normalizePhone(p) === norm));
 }
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+' · '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); }
@@ -2100,7 +2150,7 @@ function viewUpcomingFollowups(){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(e.lead.name)}</div>
-          <div class="lead-meta">${displayPhone(e.lead.phone)}${callIcon(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
+          <div class="lead-meta">${phonesHtml(e.lead)} · ${e.label}</div>
         </div>
         ${followupBadgeFor(e.date)}
       </div>
@@ -2127,7 +2177,7 @@ function renderUpcomingFollowupResults(entries, filterVal){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(e.lead.name)}</div>
-          <div class="lead-meta">${displayPhone(e.lead.phone)}${callIcon(e.lead.phone)}${whatsappIcon(e.lead.phone)} · ${e.label}</div>
+          <div class="lead-meta">${phonesHtml(e.lead)} · ${e.label}</div>
         </div>
         ${followupBadgeFor(e.date)}
       </div>
@@ -2161,7 +2211,7 @@ function crossSellLeadCard(l){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(l.name)}</div>
-          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)}</div>
+          <div class="lead-meta">${phonesHtml(l)}</div>
           ${soldFrom ? `<div class="lead-meta">Bought: <b>${esc(soldFrom)}</b></div>` :
             touchedFrom ? `<div class="lead-meta">So far: ${esc(touchedFrom)}</div>` :
             `<div class="lead-meta">Not yet referred to any department.</div>`}
@@ -2440,7 +2490,7 @@ function leadCardReception(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">${phonesHtml(l)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         ${alreadyAssigned ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${(l.assignments||[]).map(a=>`<span class="team-tag">${TEAM_LABELS[a.team]}: ${statusLabelFor(a)}</span>`).join('')}</div>` : ''}
         ${feedbackBanner}
@@ -2466,6 +2516,7 @@ function viewAddLead(){
       ${phoneCcSelectHtml('id="newLeadPhoneCc"')}
       <input type="tel" id="newLeadPhone" placeholder="Phone number">
     </div>
+    ${altPhonesFieldHtml('newLead', [])}
     <div id="dupPhoneWarning" class="hidden" style="background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:12.5px;margin:-4px 0 10px;font-weight:600;"></div>
     <label>State</label>
     <select id="newLeadState">
@@ -2532,7 +2583,7 @@ function viewAssistantRouteQueue(){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(l.name)}</div>
-          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)}</div>
+          <div class="lead-meta">${phonesHtml(l)}</div>
           <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         </div>
       </div>
@@ -2600,7 +2651,7 @@ function postSaleReadOnlyCard(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)}</div>
-        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(a.salesperson)}</div>
+        <div class="lead-meta">${phonesHtml(lead)} · ${esc(a.salesperson)}</div>
       </div>
     </div>
     ${doneStages.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
@@ -2635,7 +2686,7 @@ function postSaleCard(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)}</div>
-        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+        <div class="lead-meta">${phonesHtml(lead)}</div>
       </div>
     </div>
     ${doneStages.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
@@ -2770,7 +2821,7 @@ function viewMyLeads(mode){
           <div class="card-row">
             <div>
               <div class="lead-name">${esc(lead.name)}</div>
-              <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+              <div class="lead-meta">${phonesHtml(lead)}</div>
               <div class="lead-meta">Customer came back in${rv.note?` — "${esc(rv.note)}"`:''}</div>
               <div class="lead-meta">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div>
             </div>
@@ -2790,7 +2841,7 @@ function viewMyLeads(mode){
           <div class="card-row">
             <div>
               <div class="lead-name">${esc(lead.name)}</div>
-              <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+              <div class="lead-meta">${phonesHtml(lead)}</div>
               <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(a.meetingDate)}</b></div>
             </div>
           </div>
@@ -2807,7 +2858,7 @@ function viewMyLeads(mode){
           <div class="card-row">
             <div>
               <div class="lead-name">${esc(lead.name)}</div>
-              <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+              <div class="lead-meta">${phonesHtml(lead)}</div>
               <div class="lead-meta">"${stageLabel}" expected <b>tomorrow, ${fmtDate(a.postSaleNextDate)}</b></div>
             </div>
           </div>
@@ -2852,7 +2903,7 @@ function renderMyLeadsSearchResults(search){
   });
   if(search){
     const s = search.toLowerCase();
-    assigns = assigns.filter(({lead})=> lead.name.toLowerCase().includes(s) || (lead.phone||'').includes(s));
+    assigns = assigns.filter(({lead})=> lead.name.toLowerCase().includes(s) || leadHasPhoneMatching(lead, s));
   }
   if(!assigns.length) return `<div class="empty">${search ? 'No matching leads.' : 'No leads have ever been referred to you.'}</div>`;
   assigns.sort((x,y)=> y.a.assignedAt.localeCompare(x.a.assignedAt));
@@ -2867,7 +2918,7 @@ function leadCardSales(lead, a){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(lead.name)}${categoryBadgesFor([a])} ${!a.acknowledged?'<span class="badge badge-new">New</span>':''}</div>
-        <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
+        <div class="lead-meta">${phonesHtml(lead)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
         <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Referred ${fmtDate(a.assignedAt)} by ${esc(a.assignedBy)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
@@ -2937,7 +2988,7 @@ function renderStaleLeadsResults(staleLeads, filterVal){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(x.lead.name)}</div>
-          <div class="lead-meta">${displayPhone(x.lead.phone)}${callIcon(x.lead.phone)}${whatsappIcon(x.lead.phone)}</div>
+          <div class="lead-meta">${phonesHtml(x.lead)}</div>
           <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px;">
             ${x.stale.map(a=>`
               <div style="display:flex;align-items:center;gap:8px;">
@@ -3059,7 +3110,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(lead.name)}</div>
-            <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)}</div>
+            <div class="lead-meta">${phonesHtml(lead)}</div>
             <div class="lead-meta">Waiting on <b>${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}</b>${rv.note?` — "${esc(rv.note)}"`:''}</div>
             <div class="lead-meta">Flagged ${fmtDateTime(rv.requestedAt)} by ${esc(rv.requestedBy)}</div>
           </div>
@@ -3089,7 +3140,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(m.name)}</div>
-            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)}</div>
+            <div class="lead-meta">${phonesHtml(m)}</div>
             <div class="lead-meta">Today${m.time?`, at <b>${fmtTime12(m.time)}</b>`:''}</div>
           </div>
         </div>
@@ -3107,7 +3158,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(m.name)}</div>
-            <div class="lead-meta">${displayPhone(m.phone)}${callIcon(m.phone)}${whatsappIcon(m.phone)} · Kitchen/Wardrobe — <b>${esc(m.who)}</b></div>
+            <div class="lead-meta">${phonesHtml(m)} · Kitchen/Wardrobe — <b>${esc(m.who)}</b></div>
             <div class="lead-meta">Today${m.time?`, at <b>${fmtTime12(m.time)}</b>`:''}</div>
           </div>
         </div>
@@ -3125,7 +3176,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(c.name)}</div>
-            <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
+            <div class="lead-meta">${phonesHtml(c)}</div>
             <div class="lead-meta">Meeting scheduled for <b>tomorrow, ${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>
           </div>
         </div>
@@ -3147,7 +3198,7 @@ function viewHeadOverview(){
         <div class="card-row">
           <div>
             <div class="lead-name">${esc(c.name)}</div>
-            <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+            <div class="lead-meta">${phonesHtml(c)} · ${esc(c.occupation||'—')}</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
             ${callDue ? `<span class="badge badge-followup">Call due</span>` : ''}
@@ -3367,7 +3418,7 @@ function renderAllConnectionsSharedResults(search){
   return resultCountLine(list.length) + list.map(c=>`
     <div class="card">
       <div class="lead-name">${esc(c.name)}</div>
-      <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
+      <div class="lead-meta">${phonesHtml(c)}</div>
       <div class="lead-meta">${esc(c.occupation||'—')}</div>
       ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
     </div>`).join('');
@@ -3478,7 +3529,7 @@ function viewReceptionConnectionCalls(mode){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(c.name)}</div>
-          <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)}</div>
+          <div class="lead-meta">${phonesHtml(c)}</div>
           ${c.assignmentNote ? `<div class="lead-meta">Note from ${esc(c.assignedByHead||'Head')}: "${esc(c.assignmentNote)}"</div>` : ''}
           ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta" style="margin-top:4px;padding:6px 10px;background:var(--warn-bg);color:var(--warn);border-radius:8px;">📅 Meeting already scheduled: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b></div>` : ''}
           ${c.nextFollowUp ? `<div class="lead-meta" style="margin-top:4px;">Next call already set for: <b>${fmtDate(c.nextFollowUp)}</b></div>` : ''}
@@ -3501,7 +3552,7 @@ function viewConnectionsSentToReception(){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(c.name)}</div>
-          <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+          <div class="lead-meta">${phonesHtml(c)} · ${esc(c.occupation||'—')}</div>
           <div class="lead-meta">Sent to <b>${esc(c.assignedToPerson||'—')}</b></div>
           ${c.assignmentNote ? `<div class="lead-meta">Note: "${esc(c.assignmentNote)}"</div>` : ''}
           ${(()=>{
@@ -3589,7 +3640,7 @@ function connectionCard(c, opts){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(c.name)}</div>
-        <div class="lead-meta">${displayPhone(c.phone)}${callIcon(c.phone)}${whatsappIcon(c.phone)} · ${esc(c.occupation||'—')}</div>
+        <div class="lead-meta">${phonesHtml(c)} · ${esc(c.occupation||'—')}</div>
         ${c.city ? `<div class="lead-meta">${esc(c.city)}${c.state?', '+esc(c.state):''}</div>` : ''}
         <div class="lead-meta">Added ${fmtDate(c.createdAt)} by <b>${esc(c.createdBy||'—')}</b></div>
         ${c.meetingScheduled && c.meetingDate ? `<div class="lead-meta">📅 Meeting: <b>${fmtDate(c.meetingDate)}${c.meetingTime?` at ${fmtTime12(c.meetingTime)}`:''}</b> ${connectionMeetingDueOrOverdue(c)?'<span class="badge badge-followup" style="margin-left:6px;">Due</span>':''}</div>` : ''}
@@ -4739,7 +4790,7 @@ function computeFilteredLeadsList(baseList, search, team, status, salesperson, c
   let list = [...baseList].sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   if(search){
     const s = search.toLowerCase();
-    list = list.filter(l=> l.name.toLowerCase().includes(s) || (l.phone||'').includes(s));
+    list = list.filter(l=> l.name.toLowerCase().includes(s) || leadHasPhoneMatching(l, s));
   }
   // One shared implementation (applyLeadFiltersExcept) for the results list AND
   // the greyed-out option logic, so they can never disagree.
@@ -5008,7 +5059,7 @@ function leadCardHead(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}${categoryBadgesFor(l.assignments)}</div>
-        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">${phonesHtml(l)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${assignChips || (receptionMarkedLost(l) ? '<span class="team-tag" style="background:var(--bad);">Reception: Lost (already purchased / not interested)</span>' : '<span class="lead-meta">Not yet referred to sales</span>')}</div>
       </div>
@@ -5028,7 +5079,7 @@ function neglectedLeadCard(l){
     <div class="card-row">
       <div>
         <div class="lead-name">${esc(l.name)}</div>
-        <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
+        <div class="lead-meta">${phonesHtml(l)} · ${esc(l.address||'—')}${l.city?' · '+esc(l.city):''}</div>
         <div class="lead-meta">Source: ${esc(l.source)}${sourceDetailSuffix(l)} · Added ${fmtDate(l.createdAt)}</div>
       </div>
     </div>
@@ -5496,7 +5547,7 @@ function renderNeedsFollowupResults(needsFollowup, filterVal){
       <div class="card-row">
         <div>
           <div class="lead-name">${esc(l.name)}</div>
-          <div class="lead-meta">${displayPhone(l.phone)}${callIcon(l.phone)}${whatsappIcon(l.phone)} · ${esc(l.source)}</div>
+          <div class="lead-meta">${phonesHtml(l)} · ${esc(l.source)}</div>
           ${!assignments.length ? `<div class="lead-meta" style="margin-top:6px;">Not yet referred to sales</div>` : `
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
               ${missing.map(a=>`<span class="team-tag" style="background:var(--bad);">⚠ ${TEAM_LABELS[a.team]} — ${esc(a.salesperson)}: needs follow-up</span>`).join('')}
@@ -5842,7 +5893,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
   <div class="modal-top">
     <div>
       <h3 style="font-size:18px;">${esc(lead.name)}</h3>
-      <div class="lead-meta">${displayPhone(lead.phone)}${callIcon(lead.phone)}${whatsappIcon(lead.phone)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
+      <div class="lead-meta">${phonesHtml(lead)} · ${esc(lead.address||'—')}${lead.city?' · '+esc(lead.city):''}</div>
       <div class="lead-meta">Source: ${esc(lead.source)}${sourceDetailSuffix(lead)} · Added ${fmtDate(lead.createdAt)} by ${esc(lead.createdBy||'—')}</div>
     </div>
     <button class="close-x" id="closeModalBtn">&times;</button>
@@ -6181,6 +6232,7 @@ function renderLeadDetail(lead, focusAssignId, mode){
         ${phoneCcSelectHtml('id="editLeadPhoneCc"', splitStoredPhone(lead.phone).cc)}
         <input type="tel" id="editLeadPhone" value="${esc(splitStoredPhone(lead.phone).num)}">
       </div>
+      ${altPhonesFieldHtml('editLead', lead.altPhones)}
       <label>Address</label>
       <input type="text" id="editLeadAddress" value="${esc(lead.address||'')}">
       <label>State</label>
@@ -6900,6 +6952,7 @@ function bindDynamicHandlers(){
   if(newLeadPhoneCc) newLeadPhoneCc.addEventListener('change', checkDuplicatePhone);
   if(newLeadNameInput) newLeadNameInput.addEventListener('input', checkDuplicatePhone);
 
+  bindAltPhones('newLead');
   bindCityAutocomplete('newLeadState', 'newLeadCity', 'newLeadCitySuggestions');
   bindCityAutocomplete('connState', 'connCity', 'connCitySuggestions');
 
@@ -7008,7 +7061,7 @@ function bindDynamicHandlers(){
         createdAtIso = new Date(y, m-1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
       }
       // Same phone number already exists — prompt before creating a possible duplicate.
-      const dupMatches = findLeadsByPhone(phone);
+      const dupMatches = [...findLeadsByPhone(phone), ...collectAltPhones('newLead', phone).flatMap(p=>findLeadsByPhone(p))].filter((l,i,a)=>a.indexOf(l)===i);
       if(dupMatches.length){
         const proceed = confirm(`A lead with this phone number already exists: ${dupMatches[0].name} (added ${fmtDate(dupMatches[0].createdAt)}). Add this as a new lead anyway?`);
         if(!proceed) return;
@@ -7017,7 +7070,7 @@ function bindDynamicHandlers(){
       const referTeam = SESSION.role==='head' ? (document.getElementById('newLeadTeam')?.value||'') : '';
       const referPerson = SESSION.role==='head' ? (document.getElementById('newLeadPersonSel')?.value||'') : '';
       const lead = {
-        id: uid(), name, phone, address, state, city, source, referenceName, marketingPersonName, digitalSourceName,
+        id: uid(), name, phone, altPhones: collectAltPhones('newLead', phone), address, state, city, source, referenceName, marketingPersonName, digitalSourceName,
         createdAt: createdAtIso, createdBy: SESSION.name,
         receptionLog:[],
         assignments: isSalesAdding ? [{
@@ -7396,6 +7449,7 @@ function bindModalHandlers(lead){
       if(form) form.classList.toggle('hidden');
     });
   }
+  bindAltPhones('editLead');
   bindCityAutocompleteEls(document.getElementById('editLeadState'), document.getElementById('editLeadCity'), document.getElementById('editLeadCitySuggestions'));
   const saveEditLeadBtn = document.getElementById('saveEditLeadBtn');
   if(saveEditLeadBtn){
@@ -7415,6 +7469,7 @@ function bindModalHandlers(lead){
       if(!name || !phone){ toast('Name and phone are required'); return; }
       target.name = name;
       target.phone = phone;
+      target.altPhones = collectAltPhones('editLead', phone);
       target.address = address;
       target.state = state;
       target.city = city;
